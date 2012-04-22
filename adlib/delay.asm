@@ -2,6 +2,84 @@
 ;;;;;;	IRQ8-based delay() function.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+; Enable use of the "delay" routine.
+%macro DELAY_INIT 0
+	call irq8_install_isr
+	; Set the interrupt rate as fast as the RTC can go (8192Hz):
+	RTCRATE 3
+	IRQ8 ON
+%endmacro
+
+; Undo DELAY_INIT:
+%macro DELAY_CLEANUP 0
+	IRQ8 OFF
+	; Set the interrupt rate to the default 1024Hz:
+	RTCRATE 6
+	call irq8_remove_isr
+%endmacro
+
+; Set the RTC frequency divider to set the interrupt rate:
+; f = 32768 >> (rate-1) =>
+;   1 & 2 = not allowed (unstable)
+;   3 = 8192Hz
+;   4 = 4096Hz
+;   5 = 2048Hz
+;   6 = 1024Hz (default)
+;   7 = 512Hz
+; ...
+;   15 = 2Hz
+%macro RTCRATE 1
+	cli
+	RTCGET A
+	and al, 0xF0 ; clear lower 4 bits.
+	or al, 3 ; Select rate-3 (8192Hz) in lower 4 bits:
+	RTCSET A
+	sti
+%endmacro
+
+; Read a given RTC register into AL:
+%macro RTCGET 1
+	; Select register:
+	mov al, 0x%1
+	out 0x70, al
+	in al, 0x71
+%endmacro
+
+; Write value in AL into a given RTC register.
+; Destroys AH.
+%macro RTCSET 1
+	; Select register:
+	mov ah, al
+	mov al, 0x%1
+	out 0x70, al
+	mov al, ah
+	out 0x71, al
+%endmacro
+
+; Turn IRQ8 on or off:
+;   IRQ8 ON
+; or:
+;   IRQ8 OFF
+; Destroys AH.
+%macro IRQ8 1
+	mov ah, %1
+	call irq8_control
+%endmacro
+
+; Wait for a given number of cycles, at 8192Hz.
+; Thus, the delay is (%1/8192) seconds.
+%macro DELAY 1
+	mov ax, %1
+	call delay
+%endmacro
+
+; Wait for (approx) a given number of milliseconds:
+%macro DELAY_MS 1
+	mov ax, ((%1 * 8192) + 500) / 1000
+	call delay
+%endmacro
+
+
 ; Restore the old IRQ 8 ISR:
 irq8_remove_isr:
 	PUSHAF

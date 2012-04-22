@@ -6,38 +6,30 @@ org 0x100
 ; I've placed these here, because at the moment this will compile
 ; to a .com file and we can't have anything preceding the entrypoint.
 %include 'macros.asm'
-%include 'delay.asm'
 %include 'print.asm'
-
+%include 'delay.asm'
+%include 'adlib.asm'
 
 org 0x100
 start:
 	WRITELN "Anton",39,"s Simple AdLib Test"
-	DELAY_INIT
+	call init
 
-	; Test delays from ~250ms to ~2sec:
-	mov cx, 4
-	mov si, delay_strings
-	mov bx, 256 ; 256/1024 === 0.25sec
-.next_delay:
-	WRITE "Testing delay: "
-	lodsw
-	mov dx, ax
-	mov ah, 9
-	int 0x21
-	mov ax, bx
-	call delay
-	shl bx, 1
-	WRITELN " - Done"
-	loop .next_delay
+	; Test a 1-sec delay:
+	WRITE "Testing 1sec delay: "
+	DELAY_MS 1000
+	WRITELN "Done"
 
-	DELAY_CLEANUP
+	call cleanup
 	WRITELN "All done. Bye!"
 stop:
 	EXIT 0
 
 
-delay_strings:
-	STRING_TABLE "250ms$", "500ms$", "1sec$", "2sec$"
+init:
+	DELAY_INIT
+	ret
 
-
+cleanup:
+	DELAY_CLEANUP
+	ret

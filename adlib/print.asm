@@ -1,9 +1,43 @@
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;	Output DX as a 16-bit hex string.
-;;;;;;	See also: PUTHEX
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Output a string, like this: WRITE "foo", ...
+%macro WRITE 1+
+	push ds
+	push cs ;
+	pop ds  ; DS = CS.
+	mov ah, 9
+	mov dx, %%msg
+	int 0x21
+	jmp %%skip
+%%msg:
+	db %1, '$'
+%%skip:
+	pop ds
+%endmacro
+
+; Output a string, with a newline at the end.
+%macro WRITELN 1+
+	WRITE %1, CRLF
+%endmacro
+
+; Output a single character.
+%macro PUTC 1
+	mov ah, 2
+	mov dl, %1
+	int 0x21
+%endmacro
+
+; Display DX as a hex string:
+%macro PUTHEX 1
+	mov dx, %1
+	call print_hex
+%endmacro
+
+; Print a newline:
+%define PUTNL WRITELN ''
 
 
+
+; Output DX as a 16-bit hex string.
+; See also, the PUTHEX macro: it wraps this.
 print_hex:
 	PUSHAF
 	mov ah, 2 ; This tells int 0x21 to write a char.

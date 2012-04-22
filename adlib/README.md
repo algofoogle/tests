@@ -24,7 +24,11 @@ decided to code this test in x86 assembly, as a 16-bit DOS app.
 To build this, you'll need NASM installed. You can run `b.cmd`
 just to build, or run `br.cmd` to build and run -- though you'll
 probably find that it doesn't run properly unless it's under
-DOSBox.
+DOSBox. I've noticed, in particular, that
+[setting the RTC interrupt rate](http://wiki.osdev.org/RTC#Changing_Interrupt_Rate)
+doesn't seem to work in the
+[NTVDM](http://wiki.osdev.org/RTC#Changing_Interrupt_Rate) but
+**does** work in DOSBox.
 
 
 Examination
