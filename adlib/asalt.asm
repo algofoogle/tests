@@ -20,6 +20,19 @@ start:
 	DELAY_MS 1000
 	WRITELN "Done"
 
+	; Try to detect AdLib card.
+	WRITE "Testing AdLib card: "
+	call adlib_detect
+	; adlib_detect will return BX = 0xC000 if the card is present.
+	cmp bx, 0xC000
+	jz .found_adlib
+	WRITE "NOT FOUND: 0x"
+	PUTHEX bx
+	PUTNL
+	jmp .done
+.found_adlib:
+	WRITELN "OK"
+.done:
 	call cleanup
 	WRITELN "All done. Bye!"
 stop:
