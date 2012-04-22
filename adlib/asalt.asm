@@ -5,9 +5,9 @@ org 0x100
 
 ; I've placed these here, because at the moment this will compile
 ; to a .com file and we can't have anything preceding the entrypoint.
-%include 'macros.s'
-%include 'delay.s'
-%include 'print.s'
+%include 'macros.asm'
+%include 'delay.asm'
+%include 'print.asm'
 
 
 org 0x100
@@ -39,8 +39,5 @@ stop:
 
 delay_strings:
 	STRING_TABLE "250ms$", "500ms$", "1sec$", "2sec$"
-
-
-
 
 
