@@ -53,21 +53,20 @@ start:
 	ADLIB_CHANOP 1, 0, 0, 55,  7, 5,  8, 3
 	ADLIB_CHANOP 1, 1, 0, 63, 13, 5,  5, 8
 
-	; 
-	%assign i 0x40
-	%rep 1
-		%assign i i+0x15
-		ADLIB_NOTE i, 4, ON, 1
-		ADLIB_NOTE i, 4, ON, 0
-		%rep 0x1A
-			%assign i i+1
-			DELAY 20
-			ADLIB_NOTE i, 4, ON, 1
-			ADLIB_NOTE i, 4, ON, 0
-		%endrep
-		DELAY_MS 250
+	; Play both channels 0 and 1:
+	%assign i 0x55
+	ADLIB_NOTE i, 4, ON, 1
+	ADLIB_NOTE i, 4, ON, 0
+	; Pitch-bend upwards for the first half-second
+	; (i.e. approx 26*20ms):
+	%rep 0x1A
+		%assign i i+1 ; Increase base pitch.
+		DELAY 20
+		ADLIB_NOTE i, 4, ON, 1 ;
+		ADLIB_NOTE i, 4, ON, 0 ; Bend pitch of channels 0 & 1.
 	%endrep
 
+	; Hold for 2sec.
 	DELAY_MS 2000
 	WRITELN "Note off => Release..."
 	; Key-off:
