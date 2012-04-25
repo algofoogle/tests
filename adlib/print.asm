@@ -27,8 +27,10 @@
 
 ; Display DX as a hex string:
 %macro PUTHEX 1
+	push dx
 	mov dx, %1
 	call print_hex
+	pop dx
 %endmacro
 
 ; Print a newline:

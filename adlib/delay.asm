@@ -69,14 +69,18 @@
 ; Wait for a given number of cycles, at 8192Hz.
 ; Thus, the delay is (%1/8192) seconds.
 %macro DELAY 1
+	push ax
 	mov ax, %1
 	call delay
+	pop ax
 %endmacro
 
 ; Wait for (approx) a given number of milliseconds:
 %macro DELAY_MS 1
+	push ax
 	mov ax, ((%1 * 8192) + 500) / 1000
 	call delay
+	pop ax
 %endmacro
 
 
