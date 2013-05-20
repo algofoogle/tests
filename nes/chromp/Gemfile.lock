@@ -1,0 +1,9 @@
+GEM
+  specs:
+    chunky_png (1.2.8)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  chunky_png (~> 1.2.8)
