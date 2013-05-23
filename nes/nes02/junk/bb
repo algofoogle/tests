@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# First, assemble main source file to an object file:
+ca65 hello-sound.s -o hello-sound.o
+
+# Then, link the object file into a binary, generating map.txt too.
+# By using "-t none" we get a plain conversion to a binary file with no smarts.
+ld65 hello-sound.o -m map.txt -o hello-sound.prg -t none 
+
+ls -ald hello-sound.prg
+
