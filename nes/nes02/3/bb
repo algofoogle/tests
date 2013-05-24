@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# First, assemble main source file to an object file:
+ca65 test.s -o output/test.o -l
+
+# Then, link the object file into a binary, generating map.txt too.
+# By using "-t none" we get a plain conversion to a binary file with no smarts.
+ld65 output/test.o -m output/map.txt -o output/test.nes -t none
+
+if [ "$1" == "-d" ]; then
+	hexdump -C output/test.nes
+fi
+
+# Show what we made:
+ls -ald output/*.nes
+
