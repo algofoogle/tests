@@ -61,8 +61,9 @@ forever:
 
 ; ---------------= Interrupt Vectors =--------------------
 
-; Pad out the PRG ROM to $FFF4, which is sort of where the 6502 interrupt vector table starts
-; (See: http://en.wikipedia.org/wiki/Interrupts_in_65xx_processors)
+; Pad out the PRG ROM to $FFF4, which is sort of where the 6502 interrupt vector table starts,
+; though in actual fact that's for the 65C816. The 6502 only defines $FFFA (NMI) and above.
+; See: http://en.wikipedia.org/wiki/Interrupts_in_65xx_processors
 .res ($FFF4-*), $00
 
 ; We are now at $FFF4...
@@ -96,6 +97,9 @@ irq_vector:			; $FFFE
 ; The cartridge typically maps this to CHR ROM or CHR RAM, and can map it to more than
 ; one bank by use of a 'mapper'.
 ; See http://wiki.nesdev.com/w/index.php/PPU_memory_map for more info.
+
+; NOTE: Though I've defined a tile below, this probably won't be visible in any emulator
+; by default, because I haven't set up the PPU (and palettes) in this code.
 
 ; Pattern Table 0:
 .org $0000
