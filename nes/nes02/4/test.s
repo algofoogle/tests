@@ -32,8 +32,8 @@ zero_page:
 ; .nes file. Ideally these addresses should be reserved with a proper .segment later...
 
 .enum
-	delay_lo = 0
-	delay_hi
+	delay_lo = 0	; Low byte of 16-bit counter.
+	delay_hi		; High byte of 16-bit counter.
 .endenum
 
 
@@ -161,20 +161,20 @@ clear_zp:
 	sta apu::pulse10
 
 	; Set up a counter to switch the Pulse 1 voice between 440Hz and ~888Hz
-	; at a rate of ROUGHLY 3Hz.
-	; We cheat by using the X & Y registers to form a 16-bit counter.
-	lda #$fd
-	ldx #0
-	ldy #0
+	; at a rate of ROUGHLY 1.7Hz.
+	lda #0				; Init 16-bit counter to $0000...
+	sta delay_lo		; ...
+	sta delay_hi		; .
+	lda #$fd			; Start off with a timer for 440Hz.
+
 sound_loop:
-	dey
-	bne sound_loop
-	; Y is back to 0.
-	dex
-	bne sound_loop
-	; X is back to 0.
+	dec delay_lo		; delay_lo starts at 0, decrements to $FF...
+	bne sound_loop		; ...and until we hit 0 again, loop.
+	; At this point, delay_lo has looped back to 0...
+	dec delay_hi		; ...so we can decrement the high counter byte...
+	bne	sound_loop		; ...and go thru another cycle.
 	eor #$80			; Toggle bit 7 in A (effectively doubling/halving the frequency).
-	sta apu::pulse12
+	sta apu::pulse12	; Set timer length to adjusted 'A' value.
 	jmp sound_loop
 
 
