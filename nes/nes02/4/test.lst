@@ -1,0 +1,248 @@
+ca65 V2.13.3 - (C) Copyright 1998-2012 Ullrich von Bassewitz
+Main file   : test.s
+Current file: test.s
+
+000000r 1               ; Now we get access going to the whole NES CPU-address-space memory map.
+000000r 1               
+000000r 1               ; =============================== iNES HEADER ==========================================
+000000r 1               
+000000r 1               .org $0000
+000000  1               
+000000  1  4E 45 53 1A  .byt "NES",$1A			; Header magic.
+000004  1  01           .byt 1 					; 1 x PRG ROM chunk (16KiB).
+000005  1  01           .byt 1 					; 1 x CHR ROM chunk (8KiB).
+000006  1  00 00 00 00  .res (16-*), $00 		; Pad the rest of the header out to 16, with $00 as the filler.
+00000A  1  00 00 00 00  
+00000E  1  00 00        
+000010  1               
+000010  1               
+000010  1               ; =============================== INTERNAL RAM ==========================================
+000010  1               
+000010  1               ; The NES has 2KiB of internal RAM, mapped as 000x_x###_####_####,
+000010  1               ; i.e. where the upper 3 bits are 0, the lower 11 bits define the RAM address,
+000010  1               ; and bits 11-12 are irrelevant. Hence, the RAM at $0000-$07FF is mirrored through
+000010  1               ; $0800-$0FFF, then $1000-$17FF, and again at $1800-$1FFF.
+000010  1               
+000010  1               .org $0000
+000000  1               
+000000  1               internal_ram:
+000000  1               
+000000  1               ; NOTE: Addresses in the $0000-$00FF range lie in what's known as the 6502 "Zero Page".
+000000  1               ; Special 6502 variants of common memory access instructions can access addresses in
+000000  1               ; this range with less execution overhead.
+000000  1               
+000000  1               zero_page:
+000000  1               
+000000  1               ; NOTE: The following variables merely define the addresses for space in the RAM
+000000  1               ; that will be available at run-time, but which do not actually occupy space in this
+000000  1               ; .nes file. Ideally these addresses should be reserved with a proper .segment later...
+000000  1               
+000000  1               .enum
+000000  1               	delay_lo = 0
+000000  1               	delay_hi
+000000  1               .endenum
+000000  1               
+000000  1               
+000000  1               ; NOTE: The $0100-$01FF address range (i.e. "memory page $01") is available for the stack.
+000000  1               ; That is, push/pull stack instructions, as well as JSR subroutines and interrupts
+000000  1               ; all are hardwired to use this address range, based on the 8-bit address offset
+000000  1               ; stored in the "S" stack pointer register.
+000000  1               
+000000  1               .org $0100
+000100  1               
+000100  1               stack:
+000100  1               	.org *+$0100
+000200  1               
+000200  1               ; More RAM follows here, from $0200-$07FF.
+000200  1               
+000200  1               ; =============================== NES PPU REGISTERS ==========================================
+000200  1               
+000200  1               ; The memory block 001x_xxxx_xxxx_x### belongs to the PPU. That is, there are 8 registers
+000200  1               ; in the CPU space that interface with the PPU. These 8 registers are mirrored throughout the
+000200  1               ; entire 2KiB memory block.
+000200  1               ; I've implemented this as an enum, since it makes more sense:
+000200  1               
+000200  1               .enum ppu
+000200  1               	control = $2000
+000200  1               	mask
+000200  1               	status
+000200  1               	oam_address
+000200  1               	oam_data
+000200  1               	scroll
+000200  1               	address
+000200  1               	data
+000200  1               .endenum
+000200  1               
+000200  1               ; =============================== NES APU and I/O REGISTERS ===============================
+000200  1               
+000200  1               ; The APU has 5 voices, each of which has 4 registers, starting at $4000:
+000200  1               ;	$4000-$4003		Pulse 1:	Timer; length counter; envelope; sweep
+000200  1               ;	$4004-$4007		Pulse 2:	Timer; length counter; envelope; sweep
+000200  1               ;	$4008-$400B		Triangle:	Timer; length counter; linear counter
+000200  1               ;	$400C-$400F		Noise:		Timer; length counter; envelope; linear feedback shift register
+000200  1               ;	$4010-$4013		DMC (DPCM):	Timer; memory reader; sample buffer; output unit
+000200  1               ; Additionally, these registers are used by voices:
+000200  1               ;	$4015			Channel enable and length counter status
+000200  1               ;	$4017			Frame counter
+000200  1               
+000200  1               .enum apu
+000200  1               	pulse10 = $4000
+000200  1               	pulse11
+000200  1               	pulse12
+000200  1               	pulse13
+000200  1               	pulse20
+000200  1               	pulse21
+000200  1               	pulse22
+000200  1               	pulse23
+000200  1               	tri0
+000200  1               	tri1
+000200  1               	tri2
+000200  1               	tri3
+000200  1               	noise0
+000200  1               	noise1
+000200  1               	noise2
+000200  1               	noise3
+000200  1               	dmc0
+000200  1               	dmc1
+000200  1               	dmc2
+000200  1               	dmc3
+000200  1               	status = $4015
+000200  1               	frame = $4017
+000200  1               .endenum
+000200  1               
+000200  1               
+000200  1               ; =============================== PRG ROM ==========================================
+000200  1               
+000200  1               
+000200  1               
+000200  1               ; PRG ROM size (defined above) is 16KiB, mapped to $C000-$FFFF.
+000200  1               .org $C000
+00C000  1               
+00C000  1               ; ISR (Interrupt Service Routine) for the NMI:
+00C000  1               nmi_isr:
+00C000  1               	; Handle NMI here.
+00C000  1  40           	rti
+00C001  1               
+00C001  1               ; ISR for the IRQ/BRK interrupt:
+00C001  1               irq_isr:
+00C001  1               	; Handle IRQ/BRK here.
+00C001  1  40           	rti
+00C002  1               
+00C002  1               ; MAIN PROGRAM START: The 'reset' address (referenced by the Interrupt Vectors table, later on).
+00C002  1               reset:
+00C002  1               	; Do init stuff.
+00C002  1  78           	sei				; "SEt Interrupt disable"
+00C003  1  A2 FF        	ldx #$ff		;
+00C005  1  9A           	txs				; Set stack pointer to $01FF (where the MSByte is implied).
+00C006  1               	; Clear the zero page.
+00C006  1  A2 00        	ldx #0
+00C008  1  8A           	txa				; Transfer X to A
+00C009  1               clear_zp:
+00C009  1  95 00        	sta $00,x		; Set zero page offset $00+X to A (i.e. [X] <- 0).
+00C00B  1  E8           	inx				; Increment X
+00C00C  1  D0 FB        	bne	clear_zp	; Not wrapped around to 0, yet?
+00C00E  1               
+00C00E  1               	; Make a simple noise by telling the APU to activate a square wave (pulse) voice
+00C00E  1               	; at a particular frequency...
+00C00E  1  A9 01        	lda #$01			; Bits 0 & 1, of register $4015, respectively enable Pulse voices 1 & 2.
+00C010  1  8D 15 40     	sta apu::status
+00C013  1               	; We want a note at 440Hz ("A"). Our timer period is determined from frequency as:
+00C013  1               	;	t = (CPU / (16 * f)) - 1
+00C013  1               	; where CPU is 1,662,607 Hz for PAL, or 1,789,773 Hz for NTSC.
+00C013  1               	; Hence, t = (1,789,773 / (16 * 440)) - 1 = 253.229
+00C013  1               	; But, we can only go by integer values, so at t = 253, our frequency is:
+00C013  1               	;	f = CPU / (16 * (t + 1)) = 1,789,773 / (16 * 254) = 440.4 Hz
+00C013  1               	; ...which is only 1.6 'cents' off, and not discernable from 440Hz.
+00C013  1               	; So, 253 in hex is $FD... Set the timer period to 000_1111_1101:
+00C013  1  A9 FD        	lda #$fd
+00C015  1  8D 02 40     	sta apu::pulse12	; Timer low is $FD
+00C018  1  A9 00        	lda #$00
+00C01A  1  8D 03 40     	sta apu::pulse13	; Timer high is $00
+00C01D  1               	; Now we set pulse10 ($4000) to $BF (1011_1111), which means:
+00C01D  1               	; 10......	; DD - Duty 2: 50%
+00C01D  1               	; ..1.....  ; L - Length counter halt.
+00C01D  1               	; ...1....  ; C - Constant volume.
+00C01D  1               	; ....1111	; VVVV - Actual volume: Maximum.
+00C01D  1  A9 BF        	lda #$bf
+00C01F  1  8D 00 40     	sta apu::pulse10
+00C022  1               
+00C022  1               	; Set up a counter to switch the Pulse 1 voice between 440Hz and ~888Hz
+00C022  1               	; at a rate of ROUGHLY 5Hz.
+00C022  1               	; We cheat by using the X & Y registers to form a 16-bit counter.
+00C022  1  A9 FD        	lda #$fd
+00C024  1  A2 00        	ldx #0
+00C026  1  A0 00        	ldy #0
+00C028  1               sound_loop:
+00C028  1  88           	dey
+00C029  1  D0 FD        	bne sound_loop
+00C02B  1               	; Y is back to 0.
+00C02B  1  CA           	dex
+00C02C  1  D0 FA        	bne sound_loop
+00C02E  1               	; X is back to 0.
+00C02E  1  49 80        	eor #$80			; Toggle bit 7 in A (effectively doubling/halving the frequency).
+00C030  1  8D 02 40     	sta apu::pulse12
+00C033  1  4C 28 C0     	jmp sound_loop
+00C036  1               
+00C036  1               
+00C036  1               ; ---------------= Interrupt Vectors =--------------------
+00C036  1               
+00C036  1               ; Pad out the PRG ROM to $FFF4, which is sort of where the 6502 interrupt vector table starts,
+00C036  1               ; though in actual fact that's for the 65C816. The 6502 only defines $FFFA (NMI) and above.
+00C036  1               ; See: http://en.wikipedia.org/wiki/Interrupts_in_65xx_processors
+00C036  1  00 00 00 00  .res ($FFF4-*), $00
+00C03A  1  00 00 00 00  
+00C03E  1  00 00 00 00  
+00FFF4  1               
+00FFF4  1               ; We are now at $FFF4...
+00FFF4  1               ; NOTE: The labels here are irrelevant, really, but just make it clear what each
+00FFF4  1               ; vector actually is:
+00FFF4  1               cop_vector:			; $FFF4
+00FFF4  1  00 00        	.word $0000 	; (Unused)
+00FFF6  1               brk_vector:			; $FFF6
+00FFF6  1  00 00        	.word $0000 	; (Unused; actually a 65C816 vector)
+00FFF8  1               abort_vector:		; $FFF8
+00FFF8  1  00 00        	.word $0000 	; (Unused)
+00FFFA  1               nmi_vector:			; $FFFA
+00FFFA  1  00 C0        	.word nmi_isr	; Address of the NMI ISR, defined near the start of the main PRG code in this case.
+00FFFC  1               reset_vector:		; $FFFC
+00FFFC  1  02 C0        	.word reset		; Address of where to go after a reset; i.e. main program start.
+00FFFE  1               irq_vector:			; $FFFE
+00FFFE  1  01 C0        	.word irq_isr	; Address of the IRQ/BRK ISR.
+010000  1               
+010000  1               
+010000  1               
+010000  1               ; =============================== CHR ROM ==========================================
+010000  1               
+010000  1               ; NOTE: Instead of putting the CHR ROM into this source file, you could just have it as
+010000  1               ; a separate binary file (e.g. created with 'chromp') and then 'cat' it onto your .nes file,
+010000  1               ; or otherwise include its raw binary data here with .incbin.
+010000  1               
+010000  1               ; The PPU (Picture Processing Unit) in the NES has its own address space
+010000  1               ; (http://wiki.nesdev.com/w/index.php/PPU), in which $0000-$0FFF is "Pattern Table 0"
+010000  1               ; (or the lower CHR bank), and $1000-$1FFF is "Pattern Table 1" (or the upper CHR bank),
+010000  1               ; for a total of 8KiB of "pattern data".
+010000  1               ; The cartridge typically maps this to CHR ROM or CHR RAM, and can map it to more than
+010000  1               ; one bank by use of a 'mapper'.
+010000  1               ; See http://wiki.nesdev.com/w/index.php/PPU_memory_map for more info.
+010000  1               
+010000  1               ; NOTE: Though I've defined a tile below, this probably won't be visible in any emulator
+010000  1               ; by default, because I haven't set up the PPU (and palettes) in this code.
+010000  1               
+010000  1               .org $0000
+000000  1               
+000000  1               ; Pattern Table 0:
+000000  1  00 00 00 00  .incbin "anton.chr"
+000004  1  00 00 00 00  
+000008  1  00 00 00 00  
+001000  1               
+001000  1               ; Pad out to 4KiB:
+001000  1               .res ($1000-*), $00
+001000  1               
+001000  1               ; Pattern Table 1:
+001000  1  00 00 00 00  .incbin "anton.chr"
+001004  1  00 00 00 00  
+001008  1  00 00 00 00  
+002000  1               
+002000  1               ; Pad out to 8KiB:
+002000  1               .res ($2000-*), $00
+002000  1               
