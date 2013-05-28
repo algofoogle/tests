@@ -30,3 +30,10 @@ NMI and IRQ/BRK.
 All this program does is send a few commands to the APU that start it playing a square wave,
 and then it hangs by entering a do-nothing endless loop.
 
+nes02/4
+-------
+
+This extends `nes02/4` to define a bit more of the CPU's memory map, and hence uses
+RAM (in the zero page) to set up a basic delay counter that lets us switch the APU's Pulse
+generator between two different frequencies, essentially creating a basic phone ring effect.
+

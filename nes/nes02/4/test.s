@@ -161,11 +161,13 @@ clear_zp:
 	sta apu::pulse10
 
 	; Set up a counter to switch the Pulse 1 voice between 440Hz and ~888Hz
-	; at a rate of ROUGHLY 1.7Hz.
+	; at a rate of ROUGHLY 14.3Hz.
 	lda #0				; Init 16-bit counter to $0000...
 	sta delay_lo		; ...
 	sta delay_hi		; .
 	lda #$fd			; Start off with a timer for 440Hz.
+
+	; This loop produces a two-tone effect that is similar to a modern phone ringing:
 
 sound_loop:
 	dec delay_lo		; delay_lo starts at 0, decrements to $FF...
@@ -173,7 +175,11 @@ sound_loop:
 	; At this point, delay_lo has looped back to 0...
 	dec delay_hi		; ...so we can decrement the high counter byte...
 	bne	sound_loop		; ...and go thru another cycle.
-	eor #$80			; Toggle bit 7 in A (effectively doubling/halving the frequency).
+	pha					; Save A for a sec.
+	lda #$20			; Count down from $2000, not (effectively) $10000...
+	sta delay_hi		; .
+	pla					; Retrieve A.
+	eor #$40			; Toggle bit 6 in A, to switch between $FD and $BD (440Hz (A) and 589Hz (D)).
 	sta apu::pulse12	; Set timer length to adjusted 'A' value.
 	jmp sound_loop
 
