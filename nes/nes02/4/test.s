@@ -160,7 +160,7 @@ clear_zp:
 	lda #$bf
 	sta apu::pulse10
 
-	; Set up a counter to switch the Pulse 1 voice between 440Hz and ~888Hz
+	; Set up a counter to switch the Pulse 1 voice between 440Hz (A) and 589Hz (D)
 	; at a rate of ROUGHLY 14.3Hz.
 	lda #0				; Init 16-bit counter to $0000...
 	sta delay_lo		; ...
@@ -179,7 +179,7 @@ sound_loop:
 	lda #$20			; Count down from $2000, not (effectively) $10000...
 	sta delay_hi		; .
 	pla					; Retrieve A.
-	eor #$40			; Toggle bit 6 in A, to switch between $FD and $BD (440Hz (A) and 589Hz (D)).
+	eor #$40			; Toggle bit 6 in A, to switch between $FD and $BD (440Hz and 589Hz).
 	sta apu::pulse12	; Set timer length to adjusted 'A' value.
 	jmp sound_loop
 
