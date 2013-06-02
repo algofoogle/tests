@@ -37,3 +37,10 @@ This extends `nes02/4` to define a bit more of the CPU's memory map, and hence u
 RAM (in the zero page) to set up a basic delay counter that lets us switch the APU's Pulse
 generator between two different frequencies, essentially creating a basic phone ring effect.
 
+nes02/5
+-------
+
+Shows use of an ld65 configuration file (`nesfile.ini`) to define the memory map, behaviour
+of segments, and output file format for `.nes` files. Introduces more complex macros
+(i.e. `music.inc`'s `Notes` macro) and plays some music for fun.
+
