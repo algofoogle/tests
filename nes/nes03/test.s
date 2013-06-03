@@ -12,6 +12,15 @@
 .include "nes.inc"		; This is found in cc65's "asminc" dir.
 .include "nesdefs.inc"	; This may be better than "nes.inc".
 
+; =====	Local macros ===========================================================
+
+.macro wait_for_nmi
+	lda nmi_counter
+:	cmp nmi_counter
+	beq	:-				; Loop, so long as nmi_counter hasn't changed its value.
+.endmacro
+
+
 ; =====	iNES header ============================================================
 
 .segment "INESHDR"
@@ -48,6 +57,9 @@ palette_data:
 	pal 		$16, $28, $3A	; $16 (red), $28 (yellow), $3A (very light green).
 	pal 		$16, $28, $3A	; $16 (red), $28 (yellow), $3A (very light green).
 .endrepeat
+
+hello_msg:
+	.byt "anton.maurovic@gmail.com        http://anton.maurovic.com", 0
 
 ; =====	Main code ==============================================================
 
@@ -96,6 +108,9 @@ palette_data:
 	sta APU_CHAN_CTRL	; Disable DMC, enable/init other channels.
 
 	; PPU warm-up: Wait 1 full frame for the PPU to become stable, by watching VBLANK.
+	; NOTE: There are 2 different ways to wait for VBLANK. This is one, recommended
+	; during early startup init. The other is by the NMI being triggered.
+	; For more information, see: http://wiki.nesdev.com/w/index.php/NMI#Caveats
 :	bit PPU_STATUS		; P.V (overflow) <- bit 6 (S0 hit); P.N (negative) <- bit 7 (VBLANK).
 	bpl	:-				; Keep checking until bit 7 (VBLANK) is asserted.
 	; First PPU frame has reached VBLANK.
@@ -127,6 +142,7 @@ palette_data:
 	inx
 	inx
 	bne :-
+	; NOTE our DMA isn't triggered until a bit later on.
 
 	; Wait for second VBLANK:
 :	bit PPU_STATUS
@@ -136,30 +152,99 @@ palette_data:
 	; --- We're still in VBLANK for a short while, so do video prep now ---
 
 	; Load the main palette.
-	; $3F00 is the 'universal background colour'. Each 4th byte after that is unused,
-	; but the other 3 bytes are the colour indices for each of the 3 colours in 
-	; each of 4 palettes, i.e. from $3F01-$3F0F.
-	; This concept is then repeated for $3F10-$3F1F, for sprite colours.
-	ppu_addr $3F00
+	; $3F00-$3F1F in the PPU address space is where palette data is kept,
+	; organised as 2 sets (background & sprite sets) of 4 palettes, each
+	; being 4 bytes long (but only the upper 3 bytes of each being used).
+	; That is 2(sets) x 4(palettes) x 3(colours). $3F00 itself is the
+	; "backdrop" colour, or the universal background colour.
+	ppu_addr $3F00	; Tell the PPU we want to access address $3F00 in its address space.
 	ldx #0
 :	lda palette_data,x
 	sta PPU_DATA
 	inx
 	cpx #32		; P.C gets set if X>=M (i.e. X>=32).
 	bcc :-		; Loop if P.C is clear.
-
-	; Clear the first nametable.
-	; ...
-
-
 	; NOTE: Trying to load the palette outside of VBLANK may lead to the colours being
 	; rendered as pixels on the screen. See:
-	; wiki.nesdev.com/w/index.php/Palette#The_background_palette_hack
+	; http://wiki.nesdev.com/w/index.php/Palette#The_background_palette_hack
+
+	; Clear the first nametable.
+	; Each nametable is 1024 bytes of memory, arranged as 32 columns by 30 rows of
+	; tile references, for a total of 960 ($3C0) bytes. The remaining 64 bytes are
+	; for the attribute table of that nametable.
+	; Nametable 0 starts at PPU address $2000.
+	; For more information, see: http://wiki.nesdev.com/w/index.php/Nametable
+	ppu_addr $2000
+	lda #0
+	ldx #32*30/4	; Only need to repeat a quarter of the time, since the loop writes 4 times.
+:	.repeat 4
+		sta PPU_DATA
+	.endrepeat
+	dex
+	bne :-
+
+	; Clear attribute table.
+	; One palette (out of the 4 background palettes available) may be assigned
+	; per 2x2 group of tiles. The actual layout of the attribute table is a bit
+	; funny. See here for more info: http://wiki.nesdev.com/w/index.php/PPU_attribute_tables
+	ldx #64
+	lda #$55			; Select palette 1 (2nd palette) throughout.
+:	sta PPU_DATA
+	dex
+	bne :-
+
+	; Write a message to the nametable, starting two lines down, 1 line in.
+	ppu_xy 1,2
+	ldx #0
+:	lda hello_msg,x		; Load a byte from the message.
+	beq msg_done		; If zero, we're done.
+	;clc
+	;adc #$60
+	sta PPU_DATA		; Write byte to nametable, which will then advance to next tile.
+	inx
+	jmp :-
+msg_done:
+
+	; Activate VBLANK NMIs.
+	lda #VBLANK_NMI
+	sta PPU_CTRL
+
+	; Now wait until nmi_counter increments, to indicate the next VBLANK.
+	wait_for_nmi
+	; By this point, we're in the 3rd VBLANK.
+
+	; Trigger DMA to copy from local OAM_RAM ($0200-$02FF) to PPU OAM RAM.
+	; For more info on DMA, see: http://wiki.nesdev.com/w/index.php/PPU_OAM#DMA
+	lda #0
+	sta PPU_OAM_ADDR	; Specify the target starts at $00 in the PPU's OAM RAM.
+	lda #>OAM_RAM		; Get upper byte (i.e. page) of source RAM for DMA operation.
+	sta OAM_DMA			; Trigger the DMA.
+	; DMA will halt the CPU while it copies 256 bytes from $0200-$02FF
+	; into $00-$FF of the PPU's OAM RAM.
+
+	; Set X & Y scrolling positions (0-255 and 0-239 respectively):
+	lda #0
+	sta PPU_SCROLL		; Write X position first.
+	sta PPU_SCROLL		; Then write Y position.
+
+	; Configure PPU parameters/behaviour/table selection:
+	lda #VBLANK_NMI|BG_0|SPR_0|NT_0|VRAM_RIGHT
+	sta PPU_CTRL
+
+	; Turn the screen on, by activating background and sprites:
+	lda #BG_ON|SPR_ON
+	sta PPU_MASK
+
 
 main_loop:
 	; Game code goes here.
+	; ...
+	wait_for_nmi
+	; Now we can update the screen.
+	; ...
 	jmp main_loop
 .endproc
+
 
 
 ; =====	CHR-ROM Pattern Tables =================================================
