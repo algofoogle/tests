@@ -20,6 +20,14 @@
 	beq	:-				; Loop, so long as nmi_counter hasn't changed its value.
 .endmacro
 
+.macro nmi_delay frames
+	lda #frames
+	sta nmi_counter
+:	lda nmi_counter
+	bne :-
+.endmacro
+
+
 
 ; =====	iNES header ============================================================
 
@@ -38,6 +46,8 @@
 .segment "ZEROPAGE"
 
 nmi_counter:	.res 1
+msg_ptr:		.res 1
+screen_offset:	.res 1
 
 ; =====	General RAM ============================================================
 
@@ -59,7 +69,11 @@ palette_data:
 .endrepeat
 
 hello_msg:
-	.byt "anton.maurovic@gmail.com        http://anton.maurovic.com", 0
+        ; 0123456789001234567890012345678901
+	.byt "  Hello, World!                 "
+	.byt "  This is a test by             "
+	.byt "  anton@maurovic.com            "
+	.byt "  - http://anton.maurovic.com", 0
 
 ; =====	Main code ==============================================================
 
@@ -69,7 +83,7 @@ hello_msg:
 ; NMI ISR.
 ; Use of .proc means labels are specific to this scope.
 .proc nmi_isr
-	inc nmi_counter
+	dec nmi_counter
 	rti
 .endproc
 
@@ -137,10 +151,7 @@ hello_msg:
 	ldx #0
 	lda #$FF
 :	sta OAM_RAM,x	; Each 4th byte in OAM (e.g. $00, $04, $08, etc.) is the Y position.
-	inx
-	inx
-	inx
-	inx
+	Repeat 4, inx
 	bne :-
 	; NOTE our DMA isn't triggered until a bit later on.
 
@@ -174,12 +185,13 @@ hello_msg:
 	; for the attribute table of that nametable.
 	; Nametable 0 starts at PPU address $2000.
 	; For more information, see: http://wiki.nesdev.com/w/index.php/Nametable
+	; NOTE: In order to keep this loop tight (knowing we can only count up to
+	; 255 in a single loop, rather than 960), we just have one loop and do
+	; multiple writes in it.
 	ppu_addr $2000
 	lda #0
 	ldx #32*30/4	; Only need to repeat a quarter of the time, since the loop writes 4 times.
-:	.repeat 4
-		sta PPU_DATA
-	.endrepeat
+:	Repeat 4, sta PPU_DATA
 	dex
 	bne :-
 
@@ -192,18 +204,6 @@ hello_msg:
 :	sta PPU_DATA
 	dex
 	bne :-
-
-	; Write a message to the nametable, starting two lines down, 1 line in.
-	ppu_xy 1,2
-	ldx #0
-:	lda hello_msg,x		; Load a byte from the message.
-	beq msg_done		; If zero, we're done.
-	;clc
-	;adc #$60
-	sta PPU_DATA		; Write byte to nametable, which will then advance to next tile.
-	inx
-	jmp :-
-msg_done:
 
 	; Activate VBLANK NMIs.
 	lda #VBLANK_NMI
@@ -235,14 +235,121 @@ msg_done:
 	lda #BG_ON|SPR_ON
 	sta PPU_MASK
 
-
-main_loop:
-	; Game code goes here.
-	; ...
+	; Wait until the screen refreshes.
 	wait_for_nmi
-	; Now we can update the screen.
-	; ...
-	jmp main_loop
+	; OK, at this point we know the screen is visible, ready, and waiting.
+
+	; ------ Configure noise channel ------
+
+	; Set volume control:
+	; --0-----	Use silencing timer.
+	; ---0----	Use volume envelope (fade).
+	; ----0000	Envelope length (shortest).
+	lda #%00000000		; Very short fade, one-shot.
+	sta $400C			; Noise channel volume control.
+
+	; Set noise type and period:
+	; 0-------	Pseudo-random noise (instead of random regular waveform).
+	; ----1000	Mid-range period/frequency.
+	lda #%00001000
+	sta $400E			; Noise mode & period (frequency).
+
+	; Set length counter:
+	; 11111---	Maximum timer (though other values seem to have no effect?)
+	lda #%11111000
+	sta $400F			; Length counter load.
+
+	; Channel control:
+	; ----1---	Enable noise channel.
+	lda #%00001000
+	sta $4015			; Channel control.
+
+
+message_loop:
+	; Wait 2s (120 frames at 60Hz):
+	nmi_delay 60
+
+	; Make a debug click by firing the noise channel one-shot
+	; (by loading the length counter):
+	lda #%00100000
+	sta $400F
+
+	; Clear the first 8 lines of the nametable:
+	ppu_addr $2000
+	lda #0
+	ldx #(32*8/4)
+:	Repeat 4, sta PPU_DATA
+	dex
+	bne :-
+
+	; Point screen offset counter back to start of line 2:
+	lda #(32*2)
+	sta screen_offset
+
+	; Point back to start of source message:
+	lda #0
+	sta msg_ptr
+
+	; Fix scroll position:
+	lda #0
+	sta PPU_SCROLL		; Write X position first.
+	sta PPU_SCROLL		; Then write Y position.
+
+	; Wait 1s:
+	nmi_delay 60
+
+char_loop:
+	; Fix message screen offset pointer:
+	lda #$20	; Hi-byte of $2000
+	sta PPU_ADDR
+	lda screen_offset
+	inc screen_offset
+	sta PPU_ADDR
+
+	; Fix scroll position:
+	lda #0
+	sta PPU_SCROLL		; Write X position first.
+	sta PPU_SCROLL		; Then write Y position.
+
+	; Write next character of message:
+	ldx msg_ptr
+	inc msg_ptr
+	lda hello_msg,x
+	beq message_done	; A=0 => End of message.
+	sta PPU_DATA		; Write the character.
+
+	cmp #$20
+	beq no_click		; Don't make a click for space characters.
+
+	; Activate short one-shot noise effect here, by loading length counter:
+	lda #%00100000
+	sta $400F
+
+no_click:
+	; Wait for 50ms (3 frames at 60Hz):
+	nmi_delay 3
+	jmp char_loop
+
+message_done:
+	nmi_delay 90
+	; Scroll off screen.
+	ldx #0
+scroll_loop:
+	cpx #((6*8)<<1)		; Scroll by 56 scanlines (7 lines), using lower 2 bits for counter.
+	beq repeat_message_loop
+	wait_for_nmi
+	lda #0
+	sta PPU_SCROLL		; X scroll is still 0.
+	txa
+	lsr a
+	;lsr a
+	sta PPU_SCROLL		; Y scroll is upper 6 bits of X.
+	inx
+	jmp scroll_loop
+
+repeat_message_loop:
+	jmp message_loop
+
 .endproc
 
 

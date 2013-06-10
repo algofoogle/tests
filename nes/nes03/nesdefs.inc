@@ -77,3 +77,8 @@ SPR_ON			= %10000	; Show sprites.
 	.endif
 .endmacro
 
+.macro Repeat num, what
+	.repeat num
+		what
+	.endrepeat
+.endmacro
