@@ -10,6 +10,9 @@ PPU_SCROLL		= $2005
 PPU_ADDR		= $2006
 PPU_DATA		= $2007
 
+APU_NOISE_VOL	= $400C
+APU_NOISE_FREQ	= $400E
+APU_NOISE_TIMER	= $400F
 APU_DMC_CTRL	= $4010
 APU_CHAN_CTRL	= $4015
 APU_FRAME		= $4017
@@ -82,3 +85,4 @@ SPR_ON			= %10000	; Show sprites.
 		what
 	.endrepeat
 .endmacro
+

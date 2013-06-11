@@ -14,17 +14,21 @@
 
 ; =====	Local macros ===========================================================
 
+; This waits for a change in the value of the NMI counter.
+; It destroys the A register.
 .macro wait_for_nmi
 	lda nmi_counter
 :	cmp nmi_counter
 	beq	:-				; Loop, so long as nmi_counter hasn't changed its value.
 .endmacro
 
+; This waits for a given no. of NMIs to pass. It destroys the A register.
+; Note that it relies on an NMI counter that decrements, rather than increments.
 .macro nmi_delay frames
 	lda #frames
-	sta nmi_counter
-:	lda nmi_counter
-	bne :-
+	sta nmi_counter		; Store the desired frame count.
+:	lda nmi_counter		; In a loop, keep checking the frame count.
+	bne :-				; Loop until it's decremented to 0.
 .endmacro
 
 
@@ -45,9 +49,9 @@
 
 .segment "ZEROPAGE"
 
-nmi_counter:	.res 1
-msg_ptr:		.res 1
-screen_offset:	.res 1
+nmi_counter:	.res 1	; Counts DOWN for each NMI.
+msg_ptr:		.res 1	; Points to the next character to fetch from a message.
+screen_offset:	.res 1	; Points to the next screen offset to write.
 
 ; =====	General RAM ============================================================
 
@@ -64,12 +68,12 @@ palette_data:
 .repeat 2
 	pal $09,	$16, $2A, $12	; $09 (dark plant green), $16 (red), $2A (green), $12 (blue).
 	pal 		$16, $28, $3A	; $16 (red), $28 (yellow), $3A (very light green).
-	pal 		$16, $28, $3A	; $16 (red), $28 (yellow), $3A (very light green).
-	pal 		$16, $28, $3A	; $16 (red), $28 (yellow), $3A (very light green).
+	pal 		$00, $10, $20	; Grey; light grey; white.
+	pal 		$25, $37, $27	; Pink; light yellow; orange.
 .endrepeat
 
 hello_msg:
-        ; 0123456789001234567890012345678901
+        ; 01234567890123456789012345678901
 	.byt "  Hello, World!                 "
 	.byt "  This is a test by             "
 	.byt "  anton@maurovic.com            "
@@ -241,44 +245,55 @@ hello_msg:
 
 	; ------ Configure noise channel ------
 
-	; Set volume control:
-	; --0-----	Use silencing timer.
-	; ---0----	Use volume envelope (fade).
-	; ----0000	Envelope length (shortest).
-	lda #%00000000		; Very short fade, one-shot.
-	sta $400C			; Noise channel volume control.
-
 	; Set noise type and period:
 	; 0-------	Pseudo-random noise (instead of random regular waveform).
 	; ----1000	Mid-range period/frequency.
 	lda #%00001000
-	sta $400E			; Noise mode & period (frequency).
+	sta APU_NOISE_FREQ	; Noise mode & period (frequency).
+
+	; Set volume control:
+	; --0-----	Use silencing timer (makes it one-shot).
+	; ---0----	Use volume envelope (fade).
+	; ----0000	Envelope length (shortest).
+	lda #%00000000		; Very short fade, one-shot.
+	sta APU_NOISE_VOL	; Noise channel volume control.
 
 	; Set length counter:
 	; 11111---	Maximum timer (though other values seem to have no effect?)
 	lda #%11111000
-	sta $400F			; Length counter load.
+	sta APU_NOISE_TIMER	; Length counter load.
 
 	; Channel control:
 	; ----1---	Enable noise channel.
 	lda #%00001000
-	sta $4015			; Channel control.
+	sta APU_CHAN_CTRL	; Channel control.
 
 
 message_loop:
-	; Wait 2s (120 frames at 60Hz):
+	; Wait 1s (60 frames at 60Hz):
 	nmi_delay 60
 
 	; Make a debug click by firing the noise channel one-shot
 	; (by loading the length counter):
 	lda #%00100000
-	sta $400F
+	sta APU_NOISE_TIMER
 
 	; Clear the first 8 lines of the nametable:
 	ppu_addr $2000
 	lda #0
 	ldx #(32*8/4)
 :	Repeat 4, sta PPU_DATA
+	dex
+	bne :-
+
+	; Now fix the palettes for those 8 lines:
+	lda #$23
+	sta PPU_ADDR
+	lda #$C0			; Select 1st metarow (rows 0-3; we'll then do 4-7).
+	sta PPU_ADDR
+	ldx #16				; Fill two metarows (8 bytes each)
+	lda #$55			; Lower 2 rows (bits 4-7) get palette 1, upper 2 get palette 3.
+:	sta PPU_DATA
 	dex
 	bne :-
 
@@ -300,10 +315,10 @@ message_loop:
 
 char_loop:
 	; Fix message screen offset pointer:
-	lda #$20	; Hi-byte of $2000
+	lda #$20			; Hi-byte of $2000
 	sta PPU_ADDR
-	lda screen_offset
-	inc screen_offset
+	lda screen_offset	; Get current screen offset.
+	inc screen_offset	; Increment screen offset variable, for next time.
 	sta PPU_ADDR
 
 	; Fix scroll position:
@@ -312,39 +327,58 @@ char_loop:
 	sta PPU_SCROLL		; Then write Y position.
 
 	; Write next character of message:
-	ldx msg_ptr
-	inc msg_ptr
-	lda hello_msg,x
+	ldx msg_ptr			; Get message offset.
+	inc msg_ptr			; Increment message offset source.
+	lda hello_msg,x		; Get message character.
 	beq message_done	; A=0 => End of message.
 	sta PPU_DATA		; Write the character.
 
 	cmp #$20
-	beq no_click		; Don't make a click for space characters.
+	beq skip_click		; Don't make a click for space characters.
 
 	; Activate short one-shot noise effect here, by loading length counter:
 	lda #%00100000
-	sta $400F
+	sta APU_NOISE_TIMER
 
-no_click:
+skip_click:
 	; Wait for 50ms (3 frames at 60Hz):
 	nmi_delay 3
-	jmp char_loop
+	jmp char_loop		; Go process the next character.
 
 message_done:
-	nmi_delay 90
-	; Scroll off screen.
+	; Message is done; wait half a second.
+	nmi_delay 30
+	; Change the text colour of the 5th and 6th rows.
+	lda #$23			; Attribute table starts at $23C0.
+	sta PPU_ADDR
+	lda #$C8			; Select 2nd metarow (rows 4, 5, 6, and 7).
+	sta PPU_ADDR
+	ldx #8				; Fill just one metarow.
+	lda #$5F			; Lower 2 rows (bits 4-7) get palette 1, upper 2 get palette 3.
+:	sta PPU_DATA
+	dex
+	bne :-
+
+	; Fix scroll position:
+	lda #0
+	sta PPU_SCROLL		; Write X position first.
+	sta PPU_SCROLL		; Then write Y position.
+
+	; Wait 1 sec:
+	nmi_delay 60
+
+	; Scroll off screen:
 	ldx #0
 scroll_loop:
-	cpx #((6*8)<<1)		; Scroll by 56 scanlines (7 lines), using lower 2 bits for counter.
-	beq repeat_message_loop
+	cpx #((6*8)<<1)		; Scroll by 56 scanlines (7 lines), using lower bit to halve the speed.
+	beq repeat_message_loop	; Reached our target scroll limit.
 	wait_for_nmi
 	lda #0
 	sta PPU_SCROLL		; X scroll is still 0.
 	txa
-	lsr a
-	;lsr a
-	sta PPU_SCROLL		; Y scroll is upper 6 bits of X.
-	inx
+	lsr a				; Discard lower bit.
+	sta PPU_SCROLL		; Y scroll is upper 6 bits of X register.
+	inx					; Increment scroll counter.
 	jmp scroll_loop
 
 repeat_message_loop:
@@ -364,6 +398,14 @@ repeat_message_loop:
 
 .segment "PATTERN1"
 
-	.res $1000, $C1
-	; Repeat the pattern table:
-	;.incbin "anton.chr"
+	.repeat $100
+		.byt %11111111
+		.byt %10111011
+		.byt %11010111
+		.byt %11101111
+		.byt %11010111
+		.byt %10111011
+		.byt %11111111
+		.byt %11111111
+		Repeat 8, .byt $FF
+	.endrepeat
