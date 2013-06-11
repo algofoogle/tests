@@ -274,8 +274,12 @@ message_loop:
 	nmi_delay 60
 
 	; Make a debug click by firing the noise channel one-shot
-	; (by loading the length counter):
-	lda #%00100000
+	; (by loading the length counter from a value selected from
+	; a look-up table, specified here by the upper 5 bits).
+	; The table is described here:
+	; http://wiki.nesdev.com/w/index.php/APU_Length_Counter#Table_structure
+	; ...and in this case you can see that $03 is the shortest (2).
+	lda #%00011000		; 
 	sta APU_NOISE_TIMER
 
 	; Clear the first 8 lines of the nametable:
@@ -337,7 +341,7 @@ char_loop:
 	beq skip_click		; Don't make a click for space characters.
 
 	; Activate short one-shot noise effect here, by loading length counter:
-	lda #%00100000
+	lda #%00111000		; Length ID 7 is "6" (?) steps => 6/240 => 25ms??
 	sta APU_NOISE_TIMER
 
 skip_click:
