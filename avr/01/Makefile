@@ -1,4 +1,4 @@
-# Command used for assembling AVR assembly language files (*.s):
+# Command used for assembling AVR assembly language files (*.asm):
 ASM=avr-as
 
 # Command for linking object files (*.o) to ELF binaries:
@@ -33,7 +33,7 @@ test.elf:   test.o
 
 # Compile the assembly source to an object file:
 test.o:
-	$(ASM) test.s -mmcu=attiny13a -o test.o
+	$(ASM) test.asm -mmcu=attiny13a -o test.o
 
 # Delete any of our (possible) output files:
 clean:
