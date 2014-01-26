@@ -62,7 +62,7 @@ After writing the code, I calculated the following loop would generate a
 'Ref' transition every 4 cycles, which means a Ref *frequency* at 1/8 of
 the system clock:
 
-```assembly
+```nasm
 loop:
 	; Write counter state to pins:
 	out PORTB, r16			; 1 cycle.
