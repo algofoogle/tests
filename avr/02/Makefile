@@ -7,6 +7,15 @@ LINKER=avr-ld
 # Command used for extracting binary data from ELF (*.elf) files:
 OBJCOPY=avr-objcopy
 
+# Device used for burning:
+ISP=usbasp
+
+# Device we're burning to (ATtiny13A):
+DEVICE=t13
+
+# AVRDUDE is used to interace with USBasp to burn to ATtiny13A:
+BURN=avrdude -c $(ISP) -p $(DEVICE)
+
 # Command for deleting stuff (e.g. during 'clean'):
 ifndef HOME
   # HOME var not set... Let's assume Windows
@@ -18,6 +27,10 @@ endif
 
 # Default build: Produce a binary file, and an Intel HEX file we can burn.
 all:        test.bin test.hex
+
+# Burn test.hex to an ATtiny13 using avrdude:
+burn:       test.hex
+	$(BURN) -U flash:w:test.hex:i
 
 # Generate a HEX file that a burner can use:
 test.hex:	test.elf

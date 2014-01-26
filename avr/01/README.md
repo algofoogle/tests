@@ -127,7 +127,16 @@ From power-on:
 	be lit). Touch the probe to GND, pin 3 should go high, lighting up the LED.
 
 
-# Who wrote this?
+
+## Findings
+
+This functions exactly as I expected: After burning, the device is immediately running.
+When I short pin 2 to GND, the LED on pin 3 lights up. When I disconnect pin 2 or attach
+it to VCC, the LED goes out.
+
+
+
+## Who wrote this?
 
 This was written by [Anton Maurovic](http://anton.maurovic.com). You can use it
 for whatever you like, but giving me credit with a link to http://anton.maurovic.com
