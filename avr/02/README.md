@@ -205,7 +205,7 @@ Here's the detail of what I tested:
 *	It's possible that the reliability of the IC was affected by the fact that
 	I had PB3 accidentally shorted directly to GND when this fired up, which means
 	it would have been trying to drive maximum current at this pin. Certainly
-	the chip seemed to not even start up while this pin was gruonded.
+	the chip seemed to not even start up while this pin was grounded.
 *	I found strange behaviour after a while when I tested other pins, esp.
 	the (previously-shorted) pin 2 -- the frequencies all seemed to drop:
 
@@ -250,7 +250,8 @@ Here's the detail of what I tested:
 	USB port it is about 5.04V. When running on this different supply, the clock
 	is marginally faster: 139.8kHz instead of 138.5kHz => the 2% difference
 	on the supply seems to make a 1% difference to the internal RC oscillator.
-
+*	I tried with another chip (from the same MFG batch) and it gave pretty
+	much the same frequency.
 
 
 ## Who wrote this?

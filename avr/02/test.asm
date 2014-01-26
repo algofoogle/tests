@@ -8,10 +8,10 @@
 ;     This is a very basic ATtiny13A test program in AVR Assembly language.
 ;
 ;     It configures PB4..0 as outputs and toggles PB0 at a fundamental frequency
-;	  relative to the system clock, then PB1 at half that frequency, PB2
-;	  at half the rate of PB1, and so-on. This is used for determining
-; 	  the system clock of the MCU, given a known number of CPU cycles
-;	  counted out per each instruction in this source file.
+;     relative to the system clock, then PB1 at half that frequency, PB2
+;     at half the rate of PB1, and so-on. This is used for determining
+;     the system clock of the MCU, given a known number of CPU cycles
+;     counted out per each instruction in this source file.
 ;
 ;     All constants are defined in-line in this file.
 ;
@@ -24,7 +24,7 @@
 ; Usage info::
 ;
 ;     Under normal circumstances, for early tests, you want the following characteristics
-;	  which are set by the fuse byte values given in the 'Burning info':
+;     which are set by the fuse byte values given in the 'Burning info':
 ;
 ;     *   External RESET enabled (i.e. RSTDISBL=1);
 ;     *   Internal CLK enabled (i.e. CKSEL=10 for 9.6MHz clock).
@@ -51,15 +51,15 @@
 ; Reset vector comes first:
     rjmp main
 ; The other 9 interrupts all just return without doing anything, at the moment:
-	reti	; Interrupt Vector 2   = EXT_INT0   (External Interrupt Request 0)
-	reti	; Interrupt Vector 3   = PCINT0     (Pin Change)
-	reti	; Interrupt Vector 4   = TIM0_OVF   (Timer Overflow)
-	reti	; Interrupt Vector 5   = EE_RDY     (EEPROM Ready)
-	reti	; Interrupt Vector 6   = ANA_COMP   (Analog Comparator)
-	reti	; Interrupt Vector 7   = TIM0_COMPA (Timer Compare Match A)
-	reti	; Interrupt Vector 8   = TIM0_COMPB (Timer Compare Match B)
-	reti	; Interrupt Vector 9   = WDT        (Watchdog Timeout)
-	reti	; Interrupt Vector 10  = ADC        (ADC Conversion Complete)
+    reti    ; Interrupt Vector 2   = EXT_INT0   (External Interrupt Request 0)
+    reti    ; Interrupt Vector 3   = PCINT0     (Pin Change)
+    reti    ; Interrupt Vector 4   = TIM0_OVF   (Timer Overflow)
+    reti    ; Interrupt Vector 5   = EE_RDY     (EEPROM Ready)
+    reti    ; Interrupt Vector 6   = ANA_COMP   (Analog Comparator)
+    reti    ; Interrupt Vector 7   = TIM0_COMPA (Timer Compare Match A)
+    reti    ; Interrupt Vector 8   = TIM0_COMPB (Timer Compare Match B)
+    reti    ; Interrupt Vector 9   = WDT        (Watchdog Timeout)
+    reti    ; Interrupt Vector 10  = ADC        (ADC Conversion Complete)
 
 ; Main program:
 main:
@@ -79,12 +79,12 @@ main:
     ; The rest here is cycle-counted so we can figure out exactly what rate
     ; it will run at:
 loop:
-	; Write counter state to pins:
-	out PORTB, r16			; 1 cycle.
-	; Increment r16, causing cascading toggles to occur:
-	inc r16					; 1 cycle.
-	; Repeat the loop:
-	rjmp loop				; 2 cycles.
+    ; Write counter state to pins:
+    out PORTB, r16          ; 1 cycle.
+    ; Increment r16, causing cascading toggles to occur:
+    inc r16                 ; 1 cycle.
+    ; Repeat the loop:
+    rjmp loop               ; 2 cycles.
 
 ; HENCE: One iteration of the loop is 4 cycles, so PB0 (our Reference)
 ; will TRANSITION from 0 to 1, or 1 to 0, at (CLK/4) Hz, or rather
@@ -94,11 +94,11 @@ loop:
 
 ; So, for different CLK speeds:
 ;
-;	 | CLK     | PB0 freq | PB4 freq |
-;	 |---------|----------|----------|
+;    | CLK     | PB0 freq | PB4 freq |
+;    |---------|----------|----------|
 ; 1. | 9.6MHz  | 1.2MHz   | 75kHz    |
 ; 2. | 1.2MHz  | 150kHz   | 9375Hz   |
 ;
 ; ...where speed 1 (9.6MHz) is the default internal RC oscillator running
 ; at full speed, and speed 2 (1.2MHz) is that same speed divided by 8,
-; i.e. if CLKDIV8 is in effect and NOT otherwise disabled in code.
+; i.e. if CKDIV8 is in effect and NOT otherwise disabled in code.
