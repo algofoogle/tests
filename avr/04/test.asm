@@ -222,12 +222,12 @@ loop:
     ; writing a logic 1 to any bit of the PINB register -- where it is
     ; configured for output -- will cause the respective output pin
     ; to toggle its state.
-    sbi PINB, PB0           ; 1 cycle.
+    sbi PINB, PB0           ; 2 cycles.
 
     ; OK, PB0 should now be low. Keep it low for 4ms:
     short_delay 4*16
 
     ; Toggle PB0 to bring it high again:
-    sbi PINB, PB0           ; 1 cycle.
+    sbi PINB, PB0           ; 2 cycles.
     
     rjmp loop               ; 2 cycles.
