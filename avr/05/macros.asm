@@ -1,3 +1,20 @@
+
+; Set up the stack pointer, by default to the top of SRAM (i.e. RAMEND):
+.macro init_stack addr=RAMEND
+    .ifdef SPH
+        ; We're on an architecture that has the SPH register.
+        ldi r16, hi8(\addr)
+        out SPH, r16
+    .elseif \addr > 0xFF
+        ; ERROR: We were given a WORD-sized stack pointer address, but
+        ; this architecture has no SPH register, so it will only accept
+        ; a BYTE-sized stack pointer address:
+        .error "Stack pointer address exceeds this architecture's limit!"
+    .endif
+    ldi r16, lo8(\addr)
+    out SPL, r16
+.endm
+
 ; This macro executes a delay measured in SIXTEENTHS OF A MILLISECOND
 ; (assuming that the system clock is 9.6MHz). It is called like this:
 ;   short_delay 160, r16, r17
