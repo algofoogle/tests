@@ -17,7 +17,7 @@ default clocks may differ on some devices.
 
 ## What does it do?
 
-The firmware uses a naive cycle-counting approach (with dummy loops for
+The firmware uses a naïve cycle-counting approach (with dummy loops for
 delays) to try and generate a signal on PB0 that is low for 4ms and high
 for 10ms, such that it produces a 71.4Hz frequency with a 71.4% (10/14)
 duty cycle.
@@ -74,6 +74,12 @@ From power-on:
 3.  This will produce `test.bin` (a raw binary file of the Flash ROM image) and
     `test.hex` (an Intel HEX file that most ROM burners support).
 
+4.  You can also do:
+
+        make rebuild
+
+    ...to delete all the assembler artefacts, and then re-create the `test.bin`
+    and `test.hex` files.
 
 
 ## How do I load the firmware and test the hardware?

@@ -83,6 +83,9 @@
 	cpi r16, \target
 	breq 3f				; Calibration matches target: Done!
 	brlo 2f				; Calibration too low: Raise it.
+    ; To shave instructions, the logic here is basically:
+    ;    OSCCAL += (too_high ? -2 : 0) + 1
+    ; => OSCCAL += (too_high ? -1 : 1)
 	subi r16, 2			; Calibration too high: Lower it.
 2:	; Jump here if calibration too low.
 	inc r16
