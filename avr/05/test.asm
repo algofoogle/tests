@@ -5,8 +5,30 @@
 ;
 ; Description::
 ;
-;   ...TBC...
-;
+;   This is a simple program in AVR Assembly that uses a timer interrupt to
+;   generate a waveform and do other work on a schedule. It also demonstrates
+;   macros, and the use of "include" files.
+;   
+;   It is intended for an ATtiny13A, but should work
+;   on any larger ATtiny, including ATtiny25, ATtiny45, and ATtiny85 --
+;   default clocks may differ on some devices.
+;   
+;   The firmware sets up a timer that fires an interrupt every 2ms.
+;   The ISR (Interrupt Service Routine) counts the number of times it
+;   has fired, up to 14. At various counts it has the opportunity to
+;   perform any required action. The events that currently take place
+;   are at:
+;   
+;   *   2ms (ISR hit no. 1): Toggle the PB1 pin at 10kHz, for 1.5ms.
+;   *   10ms (ISR hit no. 5): Pull PB0 low.
+;   *   14ms (ISR hit no. 7): Pull PB0 high, and reset ISR hit count to 0.
+;   
+;   The result is:
+;   
+;   *   A 71.4Hz waveform on PB0 with a 71.4% (10/14) duty cycle.
+;   *   PB1 is normally low, but has a 10kHz square wave burst
+;       that starts 2ms after PB0 goes high, and lasts 1.5ms.
+; 
 ; Burning info::
 ;
 ; ***    LOW fuse byte:  0x6A
@@ -15,7 +37,12 @@
 ;
 ; Usage info::
 ;
-;   ...TBC...
+;   If correctly burned to an ATtiny13, and powered up at 5V, you should
+;   be able to verify that this is working by applying a 470-ohm resistor
+;   and LED in series between PB0 (pin 5) and GND, and see that the LED
+;   is (fairly) brightly-illuminated. A resistor-and-LED in series on PB1
+;   (pin 6), meanwhile, should show a dim LED. Further verification can be
+;   done with an oscilloscope attached to these two pins.
 
 .include "t13.asm"
 .include "macros.asm"
@@ -36,88 +63,9 @@
     reti                ; Interrupt Vector 9   = WDT        (Watchdog Timeout)
     reti                ; Interrupt Vector 10  = ADC        (ADC Conversion Complete)
 
-; This is an ISR (Interrupt Service Routine) that handles TIM0_COMPA
-; (i.e. interrupt generated when when Timer/Counter 0 hits a given limit
-; in OCR0A). This is currently configured to fire every 2ms.
-; 
-; This ISR keeps track of how many times it has fired (in R20).
-;   *   After 2ms (1 interrupt), while PB0 is high, we want to do some
-;       proof-of-concept "work".
-;   *   After 10ms (4 more interrupts), we want to pull PB0 low.
-;   *   After 14ms (2 more interrupts), we want to pull PB0 high again
-;       and reset the interrupt counter.
-;
-; For the time while we're NOT in this ISR, the main program is just in SLEEP
-; mode, so the MCU is idling. We COULD potentially do other work during this
-; time but I have nothing for it to do at the moment.
-;
-timer_isr:
-    ; NOTE: I count cycles here so I know that, no matter which path
-    ; this ISR takes, any I/O events can be timed to occur exactly
-    ; the same number of cycles after the event fired. This allows us
-    ; to get precisely-synchronised pin outputs, for example.
-    inc r20                     ; 1 cycle -- Increment interrupt counter.
-    ; Check if this the first interrupt of the sequence, and if so
-    ; go do some work in the 2ms window we have.
-    cpi r20, 1                  ; 1 cycle -- First hit?
-    breq _timer_isr_do_work     ; 1 cycle (if R20!=1) or 2 cycles (if R20==1).
-                                ; (4 cycles elapsed when entering _timer_isr_do_work)
-    ; Check if this is the 5th interrupt. If so, 10ms has elapsed.
-    cpi r20, 5                  ; 1 cycle -- 5th hit?
-    breq _timer_isr_10ms        ; 1 cycle (if R20!=5) or 2 cycles (if R20==5).
-                                ; (6 cycles elapsed when entering _timer_isr_10ms)
-    ; Check if this is the 7th interrupt. If so, 14ms elapsed, and end of sequence.
-    cpi r20, 7                  ; 1 cycle -- 7th hit?
-    brne _timer_isr_exit        ; 1 cycle (if R20==7), don't care otherwise.
 
-    ; 14ms total has elapsed...
-    ; +7 extra cycles.
-    ; Bring PB0 back up high, while we start another cycle.
-    sbi PORTB, PB0
-    ; Reset interrupt counter:
-    clr r20
-    ; Exit ISR:
-    reti
-
-_timer_isr_do_work:
-    nop                         ; 1 cycle...
-    nop                         ; 1 cycle...
-    nop                         ; 1 cycle -- SYNC.
-    ; 2ms has elapsed...
-    ; +7 extra cycles.
-    ; Do some "work" at this point, as a proof-of-concept.
-    ; In this case, 'bounce' PB1 around, making it toggle an even number of times...
-    ; The _timer_isr_toggle_loop is 480 cycles (50us) per iteration,
-    ; and R19 makes it go for 30 iterations. This makes it take 1.5ms.
-    ; Since there are TWO transitions (of 50us each) per waveform cycle, this is a
-    ; waveform period of 100us, or a frequency of 10kHz.
-    ;
-    ldi r19, 30                 ; NOTE: This could replace one of the NOPs above.
-_timer_isr_toggle_loop:
-    sbi PINB, PB1               ; 1 cycle -- Toggle PB1.
-    ; Delay for 476 cycles...
-    precise_delay 1, 79         ; 474 cycles -- Formula is: (1+1)*79*3
-    nop                         ; 1 cycle.
-    nop                         ; 1 cycle.
-    ; ...476 cycles.
-    dec r19                     ; 1 cycle.
-    brne _timer_isr_toggle_loop ; 1 or 2 cycles.
-    ; DONE: Exit the ISR:
-    reti
-
-_timer_isr_10ms:
-    nop                         ; 1 cycle -- SYNC.
-    ; 10ms has elapsed...
-    ; +7 extra cycles.
-    ; Make PB0 go low.
-    cbi PORTB, PB0
-
-_timer_isr_exit:
-    reti
-
-
-
-; Main program:
+; Main program... basically just init and control-level stuff.
+; The more-interesting stuff is in timer_isr.
 main:
 
     ; I've determined that an OSCCAL value of 0x6E gives the best approximation
@@ -211,3 +159,82 @@ sleep_loop:
     ; I think we get here when a RETI occurs from within an ISR.
     rjmp sleep_loop
     
+
+; This is an ISR (Interrupt Service Routine) that handles TIM0_COMPA
+; (i.e. interrupt generated when when Timer/Counter 0 hits a given limit
+; in OCR0A). This is currently configured to fire every 2ms.
+; 
+; This ISR keeps track of how many times it has fired (in R20).
+;   *   After 2ms (1 interrupt), while PB0 is high, we want to do some
+;       proof-of-concept "work".
+;   *   After 10ms (4 more interrupts), we want to pull PB0 low.
+;   *   After 14ms (2 more interrupts), we want to pull PB0 high again
+;       and reset the interrupt counter.
+;
+; For the time while we're NOT in this ISR, the main program is just in SLEEP
+; mode, so the MCU is idling. We COULD potentially do other work during this
+; time but I have nothing for it to do at the moment.
+;
+timer_isr:
+    ; NOTE: I count cycles here so I know that, no matter which path
+    ; this ISR takes, any I/O events can be timed to occur exactly
+    ; the same number of cycles after the event fired. This allows us
+    ; to get precisely-synchronised pin outputs, for example.
+    inc r20                     ; 1 cycle -- Increment interrupt counter.
+    ; Check if this the first interrupt of the sequence, and if so
+    ; go do some work in the 2ms window we have.
+    cpi r20, 1                  ; 1 cycle -- First hit?
+    breq _timer_isr_do_work     ; 1 cycle (if R20!=1) or 2 cycles (if R20==1).
+                                ; (4 cycles elapsed when entering _timer_isr_do_work)
+    ; Check if this is the 5th interrupt. If so, 10ms has elapsed.
+    cpi r20, 5                  ; 1 cycle -- 5th hit?
+    breq _timer_isr_10ms        ; 1 cycle (if R20!=5) or 2 cycles (if R20==5).
+                                ; (6 cycles elapsed when entering _timer_isr_10ms)
+    ; Check if this is the 7th interrupt. If so, 14ms elapsed, and end of sequence.
+    cpi r20, 7                  ; 1 cycle -- 7th hit?
+    brne _timer_isr_exit        ; 1 cycle (if R20==7), don't care otherwise.
+
+    ; 14ms total has elapsed...
+    ; +7 extra cycles.
+    ; Bring PB0 back up high, while we start another cycle.
+    sbi PORTB, PB0
+    ; Reset interrupt counter:
+    clr r20
+    ; Exit ISR:
+    reti
+
+_timer_isr_do_work:
+    nop                         ; 1 cycle...
+    nop                         ; 1 cycle...
+    nop                         ; 1 cycle -- SYNC.
+    ; 2ms has elapsed...
+    ; +7 extra cycles.
+    ; Do some "work" at this point, as a proof-of-concept.
+    ; In this case, 'bounce' PB1 around, making it toggle an even number of times...
+    ; The _timer_isr_toggle_loop is 480 cycles (50us) per iteration,
+    ; and R19 makes it go for 30 iterations. This makes it take 1.5ms.
+    ; Since there are TWO transitions (of 50us each) per waveform cycle, this is a
+    ; waveform period of 100us, or a frequency of 10kHz.
+    ;
+    ldi r19, 30                 ; NOTE: This could replace one of the NOPs above.
+_timer_isr_toggle_loop:
+    sbi PINB, PB1               ; 1 cycle -- Toggle PB1.
+    ; Delay for 476 cycles...
+    precise_delay 1, 79         ; 474 cycles -- Formula is: (1+1)*79*3
+    nop                         ; 1 cycle.
+    nop                         ; 1 cycle.
+    ; ...476 cycles.
+    dec r19                     ; 1 cycle.
+    brne _timer_isr_toggle_loop ; 1 or 2 cycles.
+    ; DONE: Exit the ISR:
+    reti
+
+_timer_isr_10ms:
+    nop                         ; 1 cycle -- SYNC.
+    ; 10ms has elapsed...
+    ; +7 extra cycles.
+    ; Make PB0 go low.
+    cbi PORTB, PB0
+
+_timer_isr_exit:
+    reti
