@@ -82,12 +82,12 @@ this program does.
 5.  `PB0` is set high, and `PB1` is set low.
 
 6.  `init_simple_timer` configures the timer:
-
+    
     *   Direct timer output (via `PB0` and `PB1`) is **disabled**.
     *   It's clocked at CLK/256 (i.e. 37.5kHz); `CS0` mode 4.
     *   After every 75 counts, it will reset itself and fire the
         `TIM0_COMPA` interrupt; `WGM` mode 2 (`CTC`).
-
+    
 7.  `Z` (the 16-bit combination `r30:r31`) is pointed at the top of a
     jump table that will later be used by the ISR. `ZH` (i.e. `r30`)
     is set to `0`, and `ZL` (i.e. `r31`) is set to the low-byte of
@@ -114,12 +114,12 @@ this program does.
     repeats if it gets woken up. This means it doesn't have to really
     do any work while waiting for the timer interrupt to fire. While
     this would do fine:
-
+    
     ```nasm
     halt_loop:
         rjmp halt_loop
     ```
-
+    
     ...doing it instead with the `SLEEP` instruction means the MCU will
     use less power. It's not hard to do, and has the same effect, so using
     the `SLEEP` instruction is worth it.
@@ -149,7 +149,7 @@ to the start of the `_timer_isr_jumps` table...
 5.  When the ISR next fires, it will repeat step 1, but this time `Z` points
     to the **second** instruction in the jump table, so it will follow a
     different execution path. Instructions 2—6 do the following:
-
+    
     *   **2** (at 4ms in the cycle): `_timer_isr_step` -- This effectively
         does nothing; `Z` increments, and the ISR returns, ready to process
         the next interrupt. All instructions 1—6 do at least this much.
@@ -159,12 +159,12 @@ to the start of the `_timer_isr_jumps` table...
         on `PB1`. See [Part 3, below](#part-3-bit-streaming-section).
     *   **5** (at 10ms): `_timer_isr_10ms` -- Make `PB0` go low.
     *   **6** (at 12ms): `_timer_isr_step` again -- Do nothing.
-
+    
     As mentioned in the first bullet point, all of these execution paths
     end with `_timer_isr_step`, which increments `Z` such that the next time
     the ISR fires, it will process the next execution path in the overall
     14ms cycle.
-
+    
 6.  When the ISR fires for the 7th time, its initial `IJMP` instruction this
     time lands after the end of the jump table. The code there resets
     `Z` to point to the start of the jump table again, brings `PB0` back up
