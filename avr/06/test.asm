@@ -123,7 +123,7 @@ _timer_isr_jumps:
     rjmp _timer_isr_act_toggle  ; 1st interrupt (2ms passed): PB1 -> high.
     rjmp _timer_isr_step        ; 2: Nothing to do;           PB1 still high.
     rjmp _timer_isr_act_toggle  ; 3rd interrupt (6ms passed): PB1 -> low.
-    rjmp _timer_isr_do_work     ; 4: Nothing to do
+    rjmp _timer_isr_do_work     ; 4th interrupt (8ms passed): Do some work.
     rjmp _timer_isr_10ms        ; 5th interrupt (10ms passed): pull PB0 low.
     rjmp _timer_isr_step        ; 6: Nothing to do.
     .if ((. - firmware_top)>>1 >= 0x0100)
@@ -168,7 +168,21 @@ _timer_isr_do_work:
 
     ; Push Z onto the stack, because we need to mess with it here...
     push ZL
-    push ZH
+    push ZH     ; NOTE: We could leave this out, and just
+                ; assume that ZH will stay at 0, always, or
+                ; at least verify that it *starts* at 0 before
+                ; the loop, and then reset it to 0 after the
+                ; loop is done (i.e. "clr ZH" instead of "pop ZH").
+                ; This would shave at least 2 instructions,
+                ; and save 1 byte of stack (SRAM).
+                ; IN FACT, we know what the next step will be
+                ; in the jump table, so we could load its address
+                ; directly and even do away with the PUSH/POP
+                ; instructions completely:
+                ; * Delete 2xPUSH
+                ; * Delete "LDI ZH"
+                ; * Change final 2xPOP to 2xLDI.
+                ; ...which will save 3 instructions.
     ; Now point Z to the data bytes (using BYTE addresses)
     ; that we have in Program Memory:
     ldi ZL, lo8(data)

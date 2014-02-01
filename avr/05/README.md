@@ -14,6 +14,17 @@ default clocks may differ on some devices.
 
 
 
+## Table of Contents
+
+*   [What does this do?](#what-does-it-do)
+*   [How does it work?](#how-does-it-work)
+*   [How do I load the firmware and test the hardware?](#how-do-i-load-the-firmware-and-test-the-hardware)
+    ... and [Verifying the firmware](#verifying-the-firmware)
+*   [Findings](#findings)
+*   [Who wrote this?](#who-wrote-this)
+
+
+
 ## What does it do?
 
 The firmware sets up a timer that fires an interrupt every 2ms.
@@ -51,7 +62,7 @@ complex event-based processing where required.
     of about 8.8MHz on my ATtiny13A.
 
 2.  The `slide_osccal` macro is used to gradually adjust `OSCCAL` until it
-    reaches the target value of 0x6E, which is the value that
+    reaches the target value of `0x6E`, which is the value that
     that I've determined gives my ATtiny13 the closest approximation of 9.6MHz.
 
 3.  The `disable_clock_prescaler` macro does just that, allowing the CPU to
@@ -61,9 +72,9 @@ complex event-based processing where required.
     the MCU's SRAM; the stack (used in this case for storing the ISR's
     return address) grows downward from the top of SRAM.
 
-5.  All of PORTB is configured for output.
+5.  All of `PORTB` is configured for output.
 
-6.  PB0 is set high, and PB1 is set low.
+6.  `PB0` is set high, and `PB1` is set low.
 
 
 ### Part 2: Setting up the timer and its interrupt:
