@@ -5,11 +5,30 @@
 ;
 ; Description::
 ;
-;   Some work towards reading data from the Flash Program Memory and writing it
-;   out via SPI. Also demonstrates use of the Z pointer (`r30:r31`) for a jump
-;   table, and more macro goodness.
-;
-;   **THIS EXAMPLE ISN'T YET FINISHED...**
+;   This sets up a timer that fires an interrupt every 2ms. It also sets up `Z`
+;   (which is a 16-bit pointer formed of the combination `r30:r31`) to point to
+;   a jump table (with 7 entries in it, representing the repeating 14ms cycle).
+;   The ISR uses the jump table for automatically directing execution flow
+;   depending on which stage we're up to:
+;   
+;   1.  (2ms) Turn on PB1.
+;   2.  (4ms) Do nothing special; PB1 is still on.
+;   3.  (6ms) Turn off PB1. It was high for a total of 4ms.
+;   4.  (8ms) Do some work: read 8 bytes from a data table in Program Memory and
+;       rapidly toggle PB1 to reflect each bit of each byte, in sequence:
+;       5us per bit, with a gap of 20us per byte.
+;   5.  (10ms) Set PB0 low.
+;   6.  (12ms) Do nothing special; PB0 is still low.
+;   7.  (14ms) Set PB0 high, and reset `Z` to point to the start of the jump
+;       table again, allowing the 14ms cycle to repeat on the next ISR hit.
+;   
+;   The result is:
+;   
+;   *   A 71.4Hz waveform on PB0 with a 71.4% (10/14) duty cycle.
+;   *   There is serial data present on PB1 for a total of about 480us,
+;       every 14ms.
+;   *   In addition to that, there is a 4ms period (out of each 14ms cycle)
+;       that PB1 is held high.
 ;
 ; Burning info::
 ;
@@ -19,7 +38,18 @@
 ;
 ; Usage info::
 ;
-;   ...TBC...
+;   If you've correctly burned this to an ATtiny13, and powered up at 5V,
+;   put an LED (in series with a 470-ohm resistor) between `PB0` and GND, and
+;   the same at `PB1`:
+;
+;   *   The LED driven by `PB0` should be fairly bright, as the `PB0` duty cycle is
+;       about 71% (meaning the LED is switched on for most of the time).
+;   *   The LED driven by `PB1` will only be about half as bright, as the `PB1` duty
+;       cycle is only about 32%... though the characteristics of human light perception
+;       mean it might actually be a less-obvious difference.
+;
+;   Further verification can be done with an oscilloscope attached to these two pins.
+;
 
 .include "t13.asm"
 .include "macros.asm"
