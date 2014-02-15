@@ -1,3 +1,8 @@
 output/
 *.swp
 *~
+avr/0?/*.hex
+avr/0?/*.bin
+avr/0?/*.elf
+avr/0?/*.o
+
