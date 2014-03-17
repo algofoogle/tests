@@ -3,3 +3,7 @@ source 'https://rubygems.org'
 gem 'rake' # Suggested: 10.1.0
 
 gem 'xrvg'
+
+# Rasem SVG generator.
+# See: https://github.com/aseldawy/rasem
+gem 'rasem'

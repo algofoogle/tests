@@ -5,7 +5,7 @@ require File.join(__FILE__, '..', 'lib/tango')
 t = Tango::Scope.new do
   units :us
   risefall 0.5
-  guidelines false
+  guidelines true
   channel :CLK, initial: false
   channel :DATA, initial: true
   channel :LATCH, initial: false, negative: true
@@ -43,4 +43,4 @@ t = Tango::Scope.new do
 end
 
 t.write_csv('example.csv')
-t.write_svg('example.svg')
+t.write_svg('example.svg')#, :engine => :rasem)

@@ -2,6 +2,7 @@ GEM
   remote: https://rubygems.org/
   specs:
     rake (10.1.1)
+    rasem (0.6.1)
     xrvg (0.0.82)
 
 PLATFORMS
@@ -9,4 +10,5 @@ PLATFORMS
 
 DEPENDENCIES
   rake
+  rasem
   xrvg

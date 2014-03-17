@@ -1,4 +1,5 @@
 require 'xrvg'
+require 'rasem'
 
 include XRVG
 
@@ -200,11 +201,15 @@ module Tango
     end
 
     def yscale
-      4
+      10
     end
 
     def yoffset
-      -40
+      0
+    end
+
+    def xscale
+      8
     end
 
     def guidelines(state)
@@ -219,54 +224,109 @@ module Tango
       else
         y = 0
       end
-      V2D[time, (y + yoffset + channel_index*6) * yscale]
+      [time, (y + yoffset + channel_index*6) * yscale]
     end
 
-    def write_svg(filename)
-      render = SVGRender[ :filename, filename, :imagesize, '1250px' ]
-      x = @samples.earliest
-      limit = @samples.latest
-      prev_time = nil
-      prev_data = nil
-      last_points = nil
-      channel_points = @channels.count.times.map{ [] }
-      each_sample do |time, data|
-        if :initial == time
+    def xyv(time, value, channel_index)
+      x,y = xy(time, value, channel_index)
+      V2D[x,y]
+    end
+
+    def write_svg(filename, options = {})
+      case (options[:engine] || 'xrvg').to_s
+      when 'xrvg'
+        render = SVGRender[ :filename, filename, :imagesize, '1250px' ]
+        x = @samples.earliest
+        limit = @samples.latest
+        prev_time = nil
+        prev_data = nil
+        last_points = nil
+        channel_points = [[]] * @channels.count
+        each_sample do |time, data|
+          if :initial == time
             prev_time = 0
-          data.each_with_index do |d, c|
-            channel_points[c] << xy(0, d[1], c)
+            data.each_with_index do |d, c|
+              channel_points[c] << xyv(0, d[1], c)
+            end
+          else
+            data.each_with_index do |p, ch_index|
+              c,v = p
+              p3 = xyv(time, v, ch_index)
+              p2 = channel_points[ch_index].last.clone
+              p2.x = p3.x - channels[c].risefall / 2
+              channel_points[ch_index] << p2
+              p3.x += channels[c].risefall / 2
+              channel_points[ch_index] << p3
+              if @guidelines
+                lp1 = V2D[time, (-5 + yoffset) * yscale]
+                lp2 = V2D[time, (25 + yoffset) * yscale]
+                render.add(
+                  Line[ :points, [lp1,lp2] ],
+                  Style[ :stroke, "gray", :strokewidth, 0.01 ]
+                )
+              end
+            end
+            prev_time = time
           end
-        else
-          data.each_with_index do |p, ch_index|
-            c,v = p
-            p3 = xy(time, v, ch_index)
-            p2 = channel_points[ch_index].last.clone
-            p2.x = p3.x - channels[c].risefall / 2
-            channel_points[ch_index] << p2
-            p3.x += channels[c].risefall / 2
-            channel_points[ch_index] << p3
-            if @guidelines
-              lp1 = V2D[time, (-5 + yoffset) * yscale]
-              lp2 = V2D[time, (25 + yoffset) * yscale]
-              render.add(
-                Line[ :points, [lp1,lp2] ],
-                Style[ :stroke, "gray", :strokewidth, 0.01 ]
-              )
+        end
+        # Here's a possible way to break streams of points into
+        # line point arrays:
+        # a.chunk{|e| e ? true : nil }.map{|_,v| v}
+        channel_points.each do |points|
+          render.add(
+            Line[ :points, points ],
+            Style[ :stroke, "blue", :strokewidth, 0.2 ]
+          )
+        end
+        render.end
+      when 'rasem'
+        points = [[]] * @channels.count
+        guides = @guidelines
+        scope = self
+        svg = Rasem::SVGImage.new(1500, 500) do
+          scope.each_sample do |time, data|
+            if :initial == time
+              data.each_with_index do |d, c|
+                points[c] << scope.xy(0, d[1], c)
+              end
+            else
+              time *= scope.xscale
+              data.each_with_index do |d, c|
+                cname, value = d
+                rf = scope.channels[cname].risefall / 2
+                p3 = scope.xy(time, value, c)
+                p2 = [ p3[0] - rf, points[c].last[1] ]
+                points[c] << p2
+                p3[0] += rf
+                points[c] << p3
+                if guides
+                  lp1 = [time,  0 * scope.yscale]
+                  lp2 = [time, 25 * scope.yscale]
+                  line(*(lp1+lp2), :stroke => 'lightgray', :stroke_width => 0.25)
+                end # @guidelines
+              end # each channel.
+            end # :initial?
+          end # each_sample
+          colors = %w(black blue green red)
+          points.each_with_index do |d, c|
+            color = colors[c]
+            last_point = nil
+            d.each do |point|
+              if last_point
+                linus = last_point + point
+                puts linus.inspect
+                line(*linus, :stroke => color)
+              end
+              last_point = point
             end
           end
-          prev_time = time
+        end # svg
+        File.open(filename, 'w') do |file|
+          file.write svg.output
         end
+      else
+        raise RuntimeError, "Unknown SVG engine: #{options[:engine].inspect}"
       end
-      # Here's a possible way to break streams of points into
-      # line point arrays:
-      # a.chunk{|e| e ? true : nil }.map{|_,v| v}
-      channel_points.each do |points|
-        render.add(
-          Line[ :points, points ],
-          Style[ :stroke, "blue", :strokewidth, 0.2 ]
-        )
-      end
-      render.end
     end
 
   end
