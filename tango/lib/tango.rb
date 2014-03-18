@@ -243,8 +243,12 @@ module Tango
       time * time_scale + time_offset
     end
 
-    def time_scale
-      4
+    def time_scale(set = nil)
+      if set
+        @time_scale = set
+      else
+        @time_scale ||= 4
+      end
     end
 
     def time_offset
@@ -274,12 +278,15 @@ module Tango
       guides = []
       # NOTE: each_sample will give us the time of the sample, and the values for
       # ALL channels at that sample time:
+      last_sample = nil
       each_sample do |time, data|
         if :initial == time
           # Load points for initial state:
           data.each_with_index do |cd, ci|
             name,value = cd
-            points[ci][:text] << [xy(-12, 0.25, ci), name.to_s]
+            tp = xy(0, 0.25, ci)
+            tp[0] -= time_offset
+            points[ci][:text] << [tp, name.to_s]
             points[ci][:main] << xy(0, value, ci)
             # Get rise-fall value for this channel:
             points[ci][:rf] = channels[name].risefall
@@ -299,16 +306,18 @@ module Tango
             sample_point[0] += rf
             points[ci][:main] << sample_point
             # Add text if needed:
-            if String === value || Symbol === value && value != last_sample[name]
-              points[ci][:text] << [xy(time, 0.25, ci), value.to_s]
+            if (String === value || Symbol === value)
+              if value.to_s != last_sample[name].to_s
+                points[ci][:text] << [xy(time, 0.25, ci), value.to_s]
+              end
             end
           end
           if @guidelines
             # Generate guide lines:
             guides += guide(time)
           end
-          last_sample = data
         end
+        last_sample = data.clone
       end
       @points = points
       @guides = guides
@@ -328,7 +337,8 @@ module Tango
         points = @points
         guides = @guides
         scope = self
-        svg = Rasem::SVGImage.new(1500, 500) do
+        # TODO: Default width and height should be based on extents of the data.
+        svg = Rasem::SVGImage.new(options[:width] || 1500, options[:height] || 500) do
           point_streams = [guides, *points.map{|c| c[:main]}]
           point_streams.each_with_index do |point_stream, index|
             color = colors.shift

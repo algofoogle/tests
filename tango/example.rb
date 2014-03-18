@@ -6,6 +6,7 @@ t = Tango::Scope.new do
   units :us
   risefall 0.3
   guidelines true
+  time_scale 5
   channel :CLK, initial: false
   channel :DATA, initial: true
   channel :LATCH, initial: false, negative: true
@@ -43,4 +44,4 @@ t = Tango::Scope.new do
 end
 
 t.write_csv('example.csv')
-t.write_svg('example.svg')#, :engine => :rasem)
+t.write_svg('example.svg', width: 1800, height: 400)
