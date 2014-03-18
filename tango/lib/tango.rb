@@ -216,6 +216,41 @@ module Tango
       @guidelines = state
     end
 
+    # Nominal peak-to-peak amplitude of a rendered channel.
+    def channel_height
+      1
+    end
+
+    # Spacing between channel baselines.
+    def channel_pitch
+      2
+    end
+
+    # Vertical offset for the first channel.
+    def channel_offset
+      2
+    end
+
+    def baseline_for_channel(channel_index)
+      channel_pitch * channel_index + channel_offset
+    end
+
+    def guide(time)
+      [ [scaled_time(time),baseline_for_channel(-1)], [scaled_time(time),baseline_for_channel(@channels.count)], nil ]
+    end
+
+    def scaled_time(time)
+      time * time_scale + time_offset
+    end
+
+    def time_scale
+      4
+    end
+
+    def time_offset
+      2
+    end
+
     def xy(time, value, channel_index)
       if value == true
         y = -1
@@ -224,15 +259,136 @@ module Tango
       else
         y = 0
       end
-      [time, (y + yoffset + channel_index*6) * yscale]
+      [scaled_time(time), baseline_for_channel(channel_index) + y*channel_height]
     end
 
-    def xyv(time, value, channel_index)
-      x,y = xy(time, value, channel_index)
-      V2D[x,y]
+
+    def render_to_points
+      # Build a structure that will hold all the point data we need to render, per channel:
+      template = Hash[*(%w(main sub).inject([]) { |a,k| a+[k.to_sym, []]})]
+      cc = @channels.count
+      points = [template] * cc
+      guides = []
+      # NOTE: each_sample will give us the time of the sample, and the values for
+      # ALL channels at that sample time:
+      each_sample do |time, data|
+        if :initial == time
+          # Load points for initial state:
+          data.each_with_index do |cd, ci|
+            name,value = cd
+            points[ci][:main] << xy(0, value, ci)
+            # Get rise-fall value for this channel:
+            points[ci][:rf] = channels[name].risefall
+          end
+        else
+          # Load subsequent points:
+          data.each_with_index do |cd, ci|
+            name,value = cd
+            rf = points[ci][:rf] / 2
+            # Create the point for this sample:
+            sample_point = xy(time, value, ci)
+            # Create the point that bridges the previous sample with this one:
+            gap_point = [sample_point[0] - rf, points[ci][:main].last[1]]
+            # Add both samples to the stream:
+            points[ci][:main] << gap_point
+            sample_point[0] += rf
+            points[ci][:main] << sample_point
+          end
+          if @guidelines
+            # Generate guide lines:
+            guides += guide(time)
+          end
+        end
+      end
+      @points = points
+      @guides = guides
+      true
     end
 
+    def rasem_scale_vertex(vertex)
+      [vertex[0]*14/9, vertex[1]*20]
+    end
+    
     def write_svg(filename, options = {})
+      case (options[:engine] || 'rasem').to_s
+      when 'rasem'
+        render_to_points
+        colors = %w(gray black blue green red)
+        points = @points
+        guides = @guides
+        scope = self
+        svg = Rasem::SVGImage.new(1500, 500) do
+          # Break the stream into arrays of points, splitting on nil:
+          paths = guides.chunk{|p| p ? true : nil}.map{|_,v| v}
+          paths.each do |path|
+            raise "Path needs at least 2 vertices, but it has: #{path.count}" unless path.count >= 2
+            last_vertex = nil
+            path.each do |vertex|
+              if last_vertex
+                line(*(scope.rasem_scale_vertex(last_vertex) + scope.rasem_scale_vertex(vertex)), :stroke => 'gray', :stroke_width => 0.25)
+              end
+              last_vertex = vertex
+            end
+          end
+          paths = 
+        end # svg
+        File.open(filename, 'w') do |file|
+          file.write svg.output
+        end
+      else
+        raise "Unsupported SVG engine: #{options[:engine].inspect}"
+      end
+    end
+
+
+        # points = [[]] * @channels.count
+        # guides = @guidelines
+        # scope = self
+        # svg = Rasem::SVGImage.new(1500, 500) do
+        #   scope.each_sample do |time, data|
+        #     if :initial == time
+        #       data.each_with_index do |d, c|
+        #         points[c] << scope.xy(0, d[1], c)
+        #       end
+        #     else
+        #       time *= scope.xscale
+        #       data.each_with_index do |d, c|
+        #         cname, value = d
+        #         rf = scope.channels[cname].risefall / 2
+        #         p3 = scope.xy(time, value, c)
+        #         p2 = [ p3[0] - rf, points[c].last[1] ]
+        #         points[c] << p2
+        #         p3[0] += rf
+        #         points[c] << p3
+        #         if guides
+        #           lp1 = [time,  0 * scope.yscale]
+        #           lp2 = [time, 25 * scope.yscale]
+        #           line(*(lp1+lp2), :stroke => 'lightgray', :stroke_width => 0.25)
+        #         end # @guidelines
+        #       end # each channel.
+        #     end # :initial?
+        #   end # each_sample
+        #   colors = %w(black blue green red)
+        #   points.each_with_index do |d, c|
+        #     color = colors[c]
+        #     last_point = nil
+        #     d.each do |point|
+        #       if last_point
+        #         linus = last_point + point
+        #         puts linus.inspect
+        #         line(*linus, :stroke => color)
+        #       end
+        #       last_point = point
+        #     end
+        #   end
+        # end # svg
+        # File.open(filename, 'w') do |file|
+        #   file.write svg.output
+        # end
+
+
+
+    def old_write_svg(filename, options = {})
       case (options[:engine] || 'xrvg').to_s
       when 'xrvg'
         render = SVGRender[ :filename, filename, :imagesize, '1250px' ]
