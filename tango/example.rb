@@ -4,7 +4,7 @@ require File.join(__FILE__, '..', 'lib/tango')
 
 t = Tango::Scope.new do
   units :us
-  risefall 0.5
+  risefall 0.3
   guidelines true
   channel :CLK, initial: false
   channel :DATA, initial: true

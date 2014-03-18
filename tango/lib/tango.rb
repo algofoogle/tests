@@ -248,7 +248,7 @@ module Tango
     end
 
     def time_offset
-      2
+      60
     end
 
     def xy(time, value, channel_index)
@@ -256,6 +256,8 @@ module Tango
         y = -1
       elsif value == false
         y = 1
+      elsif Float === value
+        y = value
       else
         y = 0
       end
@@ -267,7 +269,7 @@ module Tango
       # Build a structure that will hold all the point data we need to render, per channel:
       cc = @channels.count
       points = cc.times.map do |x|
-        Hash[*(%w(main sub).inject([]) { |a,k| a+[k.to_sym, []]})]
+        Hash[*(%w(main sub text).inject([]) { |a,k| a+[k.to_sym, []]})]
       end
       guides = []
       # NOTE: each_sample will give us the time of the sample, and the values for
@@ -277,6 +279,7 @@ module Tango
           # Load points for initial state:
           data.each_with_index do |cd, ci|
             name,value = cd
+            points[ci][:text] << [xy(-12, 0.25, ci), name.to_s]
             points[ci][:main] << xy(0, value, ci)
             # Get rise-fall value for this channel:
             points[ci][:rf] = channels[name].risefall
@@ -295,11 +298,16 @@ module Tango
             points[ci][:main] << gap_point
             sample_point[0] += rf
             points[ci][:main] << sample_point
+            # Add text if needed:
+            if String === value || Symbol === value && value != last_sample[name]
+              points[ci][:text] << [xy(time, 0.25, ci), value.to_s]
+            end
           end
           if @guidelines
             # Generate guide lines:
             guides += guide(time)
           end
+          last_sample = data
         end
       end
       @points = points
@@ -307,8 +315,9 @@ module Tango
       true
     end
 
-    def rasem_scale_vertex(vertex)
-      [vertex[0]*14/9, vertex[1]*20]
+    def rasem_scale_vertex(vertex, options = {})
+      offset = options[:offset] || [0,0]
+      [(vertex[0]+offset[0])*14/9, (vertex[1]+offset[1])*20+5]
     end
 
     def write_svg(filename, options = {})
@@ -327,14 +336,12 @@ module Tango
             paths = point_stream.chunk{|p| p ? true : nil}.map{|_,v| v}
             paths.each do |path|
               raise "Path needs at least 2 vertices, but it has: #{path.count}" unless path.count >= 2
-              last_vertex = nil
-              path.each do |vertex|
-                if last_vertex
-                  line(*(scope.rasem_scale_vertex(last_vertex) + scope.rasem_scale_vertex(vertex)), :stroke => color, :stroke_width => (index==0) ? 0.25 : 0.5)
-                end
-                last_vertex = vertex
-              end
+              polyline(*(path.map{|v| scope.rasem_scale_vertex(v)}), :stroke => color, :stroke_width => (index==0) ? 0.25 : 0.75, :fill => :none)
             end
+          end
+          points.map{|c| c[:text]}.flatten(1).each do |item|
+            pos,text = item
+            text(*scope.rasem_scale_vertex(pos), text)
           end
         end # svg
         File.open(filename, 'w') do |file|
@@ -393,51 +400,6 @@ module Tango
           )
         end
         render.end
-      when 'rasem'
-        points = [[]] * @channels.count
-        guides = @guidelines
-        scope = self
-        svg = Rasem::SVGImage.new(1500, 500) do
-          scope.each_sample do |time, data|
-            if :initial == time
-              data.each_with_index do |d, c|
-                points[c] << scope.xy(0, d[1], c)
-              end
-            else
-              time *= scope.xscale
-              data.each_with_index do |d, c|
-                cname, value = d
-                rf = scope.channels[cname].risefall / 2
-                p3 = scope.xy(time, value, c)
-                p2 = [ p3[0] - rf, points[c].last[1] ]
-                points[c] << p2
-                p3[0] += rf
-                points[c] << p3
-                if guides
-                  lp1 = [time,  0 * scope.yscale]
-                  lp2 = [time, 25 * scope.yscale]
-                  line(*(lp1+lp2), :stroke => 'lightgray', :stroke_width => 0.25)
-                end # @guidelines
-              end # each channel.
-            end # :initial?
-          end # each_sample
-          colors = %w(black blue green red)
-          points.each_with_index do |d, c|
-            color = colors[c]
-            last_point = nil
-            d.each do |point|
-              if last_point
-                linus = last_point + point
-                puts linus.inspect
-                line(*linus, :stroke => color)
-              end
-              last_point = point
-            end
-          end
-        end # svg
-        File.open(filename, 'w') do |file|
-          file.write svg.output
-        end
       else
         raise RuntimeError, "Unknown SVG engine: #{options[:engine].inspect}"
       end
