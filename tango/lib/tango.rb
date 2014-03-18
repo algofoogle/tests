@@ -223,7 +223,7 @@ module Tango
 
     # Spacing between channel baselines.
     def channel_pitch
-      2
+      3
     end
 
     # Vertical offset for the first channel.
@@ -265,9 +265,10 @@ module Tango
 
     def render_to_points
       # Build a structure that will hold all the point data we need to render, per channel:
-      template = Hash[*(%w(main sub).inject([]) { |a,k| a+[k.to_sym, []]})]
       cc = @channels.count
-      points = [template] * cc
+      points = cc.times.map do |x|
+        Hash[*(%w(main sub).inject([]) { |a,k| a+[k.to_sym, []]})]
+      end
       guides = []
       # NOTE: each_sample will give us the time of the sample, and the values for
       # ALL channels at that sample time:
@@ -284,11 +285,12 @@ module Tango
           # Load subsequent points:
           data.each_with_index do |cd, ci|
             name,value = cd
-            rf = points[ci][:rf] / 2
+            rf = points[ci][:rf] * time_scale / 2
             # Create the point for this sample:
             sample_point = xy(time, value, ci)
             # Create the point that bridges the previous sample with this one:
             gap_point = [sample_point[0] - rf, points[ci][:main].last[1]]
+            gap_point[1]
             # Add both samples to the stream:
             points[ci][:main] << gap_point
             sample_point[0] += rf
@@ -308,29 +310,32 @@ module Tango
     def rasem_scale_vertex(vertex)
       [vertex[0]*14/9, vertex[1]*20]
     end
-    
+
     def write_svg(filename, options = {})
       case (options[:engine] || 'rasem').to_s
       when 'rasem'
         render_to_points
-        colors = %w(gray black blue green red)
+        colors = %w(gray) + %w(black blue green red) * 3
         points = @points
         guides = @guides
         scope = self
         svg = Rasem::SVGImage.new(1500, 500) do
-          # Break the stream into arrays of points, splitting on nil:
-          paths = guides.chunk{|p| p ? true : nil}.map{|_,v| v}
-          paths.each do |path|
-            raise "Path needs at least 2 vertices, but it has: #{path.count}" unless path.count >= 2
-            last_vertex = nil
-            path.each do |vertex|
-              if last_vertex
-                line(*(scope.rasem_scale_vertex(last_vertex) + scope.rasem_scale_vertex(vertex)), :stroke => 'gray', :stroke_width => 0.25)
+          point_streams = [guides, *points.map{|c| c[:main]}]
+          point_streams.each_with_index do |point_stream, index|
+            color = colors.shift
+            # Break the stream into arrays of points, splitting on nil:
+            paths = point_stream.chunk{|p| p ? true : nil}.map{|_,v| v}
+            paths.each do |path|
+              raise "Path needs at least 2 vertices, but it has: #{path.count}" unless path.count >= 2
+              last_vertex = nil
+              path.each do |vertex|
+                if last_vertex
+                  line(*(scope.rasem_scale_vertex(last_vertex) + scope.rasem_scale_vertex(vertex)), :stroke => color, :stroke_width => (index==0) ? 0.25 : 0.5)
+                end
+                last_vertex = vertex
               end
-              last_vertex = vertex
             end
           end
-          paths = 
         end # svg
         File.open(filename, 'w') do |file|
           file.write svg.output
@@ -339,53 +344,6 @@ module Tango
         raise "Unsupported SVG engine: #{options[:engine].inspect}"
       end
     end
-
-
-        # points = [[]] * @channels.count
-        # guides = @guidelines
-        # scope = self
-        # svg = Rasem::SVGImage.new(1500, 500) do
-        #   scope.each_sample do |time, data|
-        #     if :initial == time
-        #       data.each_with_index do |d, c|
-        #         points[c] << scope.xy(0, d[1], c)
-        #       end
-        #     else
-        #       time *= scope.xscale
-        #       data.each_with_index do |d, c|
-        #         cname, value = d
-        #         rf = scope.channels[cname].risefall / 2
-        #         p3 = scope.xy(time, value, c)
-        #         p2 = [ p3[0] - rf, points[c].last[1] ]
-        #         points[c] << p2
-        #         p3[0] += rf
-        #         points[c] << p3
-        #         if guides
-        #           lp1 = [time,  0 * scope.yscale]
-        #           lp2 = [time, 25 * scope.yscale]
-        #           line(*(lp1+lp2), :stroke => 'lightgray', :stroke_width => 0.25)
-        #         end # @guidelines
-        #       end # each channel.
-        #     end # :initial?
-        #   end # each_sample
-        #   colors = %w(black blue green red)
-        #   points.each_with_index do |d, c|
-        #     color = colors[c]
-        #     last_point = nil
-        #     d.each do |point|
-        #       if last_point
-        #         linus = last_point + point
-        #         puts linus.inspect
-        #         line(*linus, :stroke => color)
-        #       end
-        #       last_point = point
-        #     end
-        #   end
-        # end # svg
-        # File.open(filename, 'w') do |file|
-        #   file.write svg.output
-        # end
-
 
 
     def old_write_svg(filename, options = {})
