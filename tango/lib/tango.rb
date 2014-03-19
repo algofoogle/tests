@@ -114,6 +114,7 @@ module Tango
       @labels = Labels.new
       @samples = Samples.new
       @risefall = 0
+      @ruler = {}
       instance_eval(&block)
     end
 
@@ -205,18 +206,6 @@ module Tango
       end
     end
 
-    def yscale
-      10
-    end
-
-    def yoffset
-      0
-    end
-
-    def xscale
-      8
-    end
-
     def guidelines(state)
       @guidelines = state
     end
@@ -233,7 +222,7 @@ module Tango
 
     # Vertical offset for the first channel.
     def channel_offset
-      3
+      5
     end
 
     def baseline_for_channel(channel_index)
@@ -243,6 +232,11 @@ module Tango
     def guide(time)
       t = scaled_time(time)
       [ [t,baseline_for_channel(-1)], [t,baseline_for_channel(channels.count)], nil ]
+    end
+
+    def tick(time, major = false)
+      t = scaled_time(time)
+      [ [t,0], [t, major ? 1.5 : 0.5], nil]
     end
 
     def scaled_time(time)
@@ -320,9 +314,10 @@ module Tango
             points[ci][:main] << gap_point
             sample_point[0] += rf
             points[ci][:main] << sample_point
-            # Add text if needed:
+            # Render the sample arbitrary text if needed:
             if (String === value || Symbol === value)
               if value.to_s != last_sample[name].to_s
+                # This is the start of a new arbitrary sample value...
                 font_size = ch[:font_size] || '10px'
                 font_size = font_size.to_s + 'px' unless String === font_size
                 points[ci][:text] << [
@@ -331,6 +326,14 @@ module Tango
                   'font-family' => 'helvetica',
                   'font-size' => font_size,
                 ]
+                # Was the previous sample value also arbitrary?
+                # If so, we put in a division:
+                ls = last_sample[name]
+                if String === ls || Symbol === ls
+                  top = xy(time, true, ci)
+                  bot = xy(time, false, ci)
+                  points[ci][:sub] += [top, bot, nil]
+                end
               end
             end
           end
@@ -346,14 +349,34 @@ module Tango
         line = guide(time)
         points[cc][:main] += line
         text_item = [
-          [line[0][0], 0.5],
-          "#{time-@lead_in}#{@units}\n#{text}",
+          [line[0][0], 2.5],
+          "#{'%0.3f' % (time-@lead_in)}#{@units}\n#{text}",
           'font-family' => 'helvetica',
           'font-size' => '10px',
         ]
         points[cc][:text] << text_item
       end
       @points = points
+      if @ruler[:enabled]
+        x = @lead_in
+        last = samples.latest
+        major_counter = 0
+        while (x <= last)
+          major = ( 0 == major_counter % (@ruler[:major] || 5) )
+          t = tick(x, major)
+          @guides += t
+          major_counter += 1
+          if major
+            points[cc][:text] << [
+              t[1],
+              "#{"%0.#{@ruler[:decimals] || 2}f" % (x-@lead_in)}#{@units}",
+              'font-family' => 'helvetica',
+              'font-size' => '10px',
+            ]
+          end
+          x += @ruler[:step] || 1
+        end
+      end
       true
     end
 
@@ -373,6 +396,12 @@ module Tango
       end
     end
 
+    def ruler(*args)
+      @ruler = (Hash === args.last) ? args.pop : {}
+      raise RuntimeError, "Too many arguments for ruler definition (#{args.count+1} for 0..2)" if args.count > 1
+      @ruler[:enabled] = args.empty? ? true : args.first unless @ruler.has_key?(:enabled)
+    end
+
     def rasem_scale_vertex(vertex, options = {})
       offset = options[:offset] || [0,0]
       [(vertex[0]+offset[0])*14/9, (vertex[1]+offset[1])*20+5]
@@ -383,7 +412,13 @@ module Tango
       when 'rasem'
         render_to_points
         cc = channels.count
-        styles = (%w(black blue green red).map{|c| { stroke: c, stroke_width: 0.7 } } * (cc/4+1))[0,cc]
+        base_colors = %w(black blue green red)
+        colour_set = []
+        channels.each do |c|
+          colour_set << (c[:color] || base_colors.first)
+          base_colors.rotate!
+        end
+        styles = colour_set.map{|c| { stroke: c, stroke_width: 0.7 } }
         styles += [
           { stroke: 'cyan', stroke_width: 0.40 },
           { stroke: 'gray', stroke_width: 0.25 },
@@ -391,11 +426,12 @@ module Tango
         points = @points
         guides = @guides
         scope = self
+        style = nil
         # TODO: Default width and height should be based on extents of the data.
         svg = Rasem::SVGImage.new(options[:width] || width, options[:height] || height) do
-          point_streams = [*points.map{|c| c[:main]}, guides]
+          point_streams = [*points.map{|c| c[:main]}, guides, *points.map{|c| c[:sub]}]
           point_streams.each_with_index do |point_stream, index|
-            style = styles.shift.merge(fill: 'none')
+            style = styles.shift.merge(fill: 'none') unless styles.empty?
             # Break the stream into arrays of points, splitting on nil:
             paths = point_stream.chunk{|p| p ? true : nil}.map{|_,v| v}
             paths.each do |path|

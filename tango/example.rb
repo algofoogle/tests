@@ -8,10 +8,11 @@ t = Tango::Scope.new do
   risefall 0.3
   #guidelines true
   time_scale 6
-  width 2200
-  height 275
-  channel :CLK, initial: false
-  channel :DATA, initial: true, :font_size => 9
+  width 2250
+  height 350
+  ruler step: 1, major: 5, decimals: 0
+  channel :CLK, initial: false, color: '#369'
+  channel :DATA, initial: true, font_size: 9
   channel :LATCH, initial: false, negative: true
   channel :STROBE, initial: false, negative: true
   repeat(:n, 'lines', period: 14400) do |line|
@@ -41,9 +42,11 @@ t = Tango::Scope.new do
     # Keep it asserted for 1.875us:
     sample 1.875, LATCH: false
     # Wait for 11us before asserting /STROBE:
-    sample 2.375, STROBE: true
+    step 2.375
+    label "Start heater; burn line"
+    sample 0, STROBE: true
     # Keep it asserted for 5.68ms, then raise it again:
-    #sample 5680, STROBE: false
+    sample 5680, STROBE: false
   end
 end
 
