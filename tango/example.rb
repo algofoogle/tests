@@ -6,7 +6,7 @@ t = Tango::Scope.new do
   units :us
   risefall 0.3
   guidelines true
-  time_scale 5
+  time_scale 8
   channel :CLK, initial: false
   channel :DATA, initial: true
   channel :LATCH, initial: false, negative: true

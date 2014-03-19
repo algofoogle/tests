@@ -286,7 +286,13 @@ module Tango
             name,value = cd
             tp = xy(0, 0.25, ci)
             tp[0] -= time_offset
-            points[ci][:text] << [tp, name.to_s]
+            points[ci][:text] << [
+              tp,
+              name.to_s,
+              'font-family' => 'helvetica, arial, sans-serif',
+              'font-weight' => 'bold',
+              'text-decoration' => channels[name][:negative] ? 'overline' : 'none'
+            ]
             points[ci][:main] << xy(0, value, ci)
             # Get rise-fall value for this channel:
             points[ci][:rf] = channels[name].risefall
@@ -308,7 +314,12 @@ module Tango
             # Add text if needed:
             if (String === value || Symbol === value)
               if value.to_s != last_sample[name].to_s
-                points[ci][:text] << [xy(time, 0.25, ci), value.to_s]
+                points[ci][:text] << [
+                  xy(time, 0.25, ci),
+                  value.to_s,
+                  'font-family' => 'helvetica',
+                  'font-size' => '10px',
+                ]
               end
             end
           end
@@ -349,9 +360,10 @@ module Tango
               polyline(*(path.map{|v| scope.rasem_scale_vertex(v)}), :stroke => color, :stroke_width => (index==0) ? 0.25 : 0.75, :fill => :none)
             end
           end
+          # Show data values:
           points.map{|c| c[:text]}.flatten(1).each do |item|
-            pos,text = item
-            text(*scope.rasem_scale_vertex(pos), text)
+            text_info = scope.rasem_scale_vertex(item[0]) + item[1..-1]
+            text(*text_info)
           end
         end # svg
         File.open(filename, 'w') do |file|
