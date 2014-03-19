@@ -7,7 +7,7 @@ t = Tango::Scope.new do
   lead_in 5
   risefall 0.3
   #guidelines true
-  time_scale 1
+  time_scale 6
   width 2200
   height 275
   channel :CLK, initial: false
@@ -43,7 +43,7 @@ t = Tango::Scope.new do
     # Wait for 11us before asserting /STROBE:
     sample 2.375, STROBE: true
     # Keep it asserted for 5.68ms, then raise it again:
-    sample 5680, STROBE: false
+    #sample 5680, STROBE: false
   end
 end
 
