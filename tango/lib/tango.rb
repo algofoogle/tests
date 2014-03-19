@@ -1,7 +1,4 @@
-require 'xrvg'
 require 'rasem'
-
-include XRVG
 
 module Tango
 
@@ -24,11 +21,11 @@ module Tango
   end
 
   # Describes a label:
-  class Label < Hash
-    def initialize(time, label)
-      self[:time] = time
-      self[:label] = label
-    end
+  class Label < Array
+    # def initialize(time, label)
+    #   self[:time] = time
+    #   self[:label] = label
+    # end
   end
 
   # Collects all labels:
@@ -110,6 +107,7 @@ module Tango
     attr_accessor :units
 
     def initialize(&block)
+      @lead_in = 0
       @now = 0
       @units = :us
       @channels = Channels.new
@@ -165,12 +163,19 @@ module Tango
       @now += time
     end
 
+    def lead_in(time)
+      raise RuntimeError, "Timer must be at 0 when using lead_in, but it was at #{time}" unless (@now || 0) == 0
+      @now = time
+      @lead_in = time
+    end
+
     # 'Push' @now and offset it for the block we'll run, then wind it back.
     def at(*args); end
 
     # Mark the current time with a label:
     def label(name)
-      @labels << Label.new( :time => now, :label => name )
+      ll = Label.new( [now, name] )
+      @labels << ll
     end
 
     # Define a block that repeats.
@@ -228,7 +233,7 @@ module Tango
 
     # Vertical offset for the first channel.
     def channel_offset
-      2
+      3
     end
 
     def baseline_for_channel(channel_index)
@@ -236,7 +241,8 @@ module Tango
     end
 
     def guide(time)
-      [ [scaled_time(time),baseline_for_channel(-1)], [scaled_time(time),baseline_for_channel(@channels.count)], nil ]
+      t = scaled_time(time)
+      [ [t,baseline_for_channel(-1)], [t,baseline_for_channel(channels.count)], nil ]
     end
 
     def scaled_time(time)
@@ -263,7 +269,7 @@ module Tango
       elsif Float === value
         y = value
       else
-        y = 0
+        y = 1
       end
       [scaled_time(time), baseline_for_channel(channel_index) + y*channel_height]
     end
@@ -272,10 +278,11 @@ module Tango
     def render_to_points
       # Build a structure that will hold all the point data we need to render, per channel:
       cc = @channels.count
-      points = cc.times.map do |x|
+      # NOTE: We make cc+1 point streams because the extra one is for misc. lines/text:
+      points = (cc+1).times.map do |x|
         Hash[*(%w(main sub text).inject([]) { |a,k| a+[k.to_sym, []]})]
       end
-      guides = []
+      @guides = []
       # NOTE: each_sample will give us the time of the sample, and the values for
       # ALL channels at that sample time:
       last_sample = nil
@@ -284,6 +291,7 @@ module Tango
           # Load points for initial state:
           data.each_with_index do |cd, ci|
             name,value = cd
+            ch = channels[name]
             tp = xy(0, 0.25, ci)
             tp[0] -= time_offset
             points[ci][:text] << [
@@ -291,16 +299,17 @@ module Tango
               name.to_s,
               'font-family' => 'helvetica, arial, sans-serif',
               'font-weight' => 'bold',
-              'text-decoration' => channels[name][:negative] ? 'overline' : 'none'
+              'text-decoration' => ch[:negative] ? 'overline' : 'none'
             ]
             points[ci][:main] << xy(0, value, ci)
             # Get rise-fall value for this channel:
-            points[ci][:rf] = channels[name].risefall
+            points[ci][:rf] = ch.risefall
           end
         else
           # Load subsequent points:
           data.each_with_index do |cd, ci|
             name,value = cd
+            ch = channels[name]
             rf = points[ci][:rf] * time_scale / 2
             # Create the point for this sample:
             sample_point = xy(time, value, ci)
@@ -314,25 +323,54 @@ module Tango
             # Add text if needed:
             if (String === value || Symbol === value)
               if value.to_s != last_sample[name].to_s
+                font_size = ch[:font_size] || '10px'
+                font_size = font_size.to_s + 'px' unless String === font_size
                 points[ci][:text] << [
                   xy(time, 0.25, ci),
                   value.to_s,
                   'font-family' => 'helvetica',
-                  'font-size' => '10px',
+                  'font-size' => font_size,
                 ]
               end
             end
           end
           if @guidelines
             # Generate guide lines:
-            guides += guide(time)
+            @guides += guide(time)
           end
         end
         last_sample = data.clone
       end
+      # Convert labels into an extra "channel":
+      labels.each do |time, text|
+        line = guide(time)
+        points[cc][:main] += line
+        text_item = [
+          [line[0][0], 0.5],
+          "#{time-@lead_in}#{@units}\n#{text}",
+          'font-family' => 'helvetica',
+          'font-size' => '10px',
+        ]
+        points[cc][:text] << text_item
+      end
       @points = points
-      @guides = guides
       true
+    end
+
+    def width(set = nil)
+      if set
+        @image_width = set
+      else
+        @image_width || 1000
+      end
+    end
+
+    def height(set = nil)
+      if set
+        @image_height = set
+      else
+        @image_height || 500
+      end
     end
 
     def rasem_scale_vertex(vertex, options = {})
@@ -344,23 +382,28 @@ module Tango
       case (options[:engine] || 'rasem').to_s
       when 'rasem'
         render_to_points
-        colors = %w(gray) + %w(black blue green red) * 3
+        cc = channels.count
+        styles = (%w(black blue green red).map{|c| { stroke: c, stroke_width: 0.7 } } * (cc/4+1))[0,cc]
+        styles += [
+          { stroke: 'cyan', stroke_width: 0.40 },
+          { stroke: 'gray', stroke_width: 0.25 },
+        ]
         points = @points
         guides = @guides
         scope = self
         # TODO: Default width and height should be based on extents of the data.
-        svg = Rasem::SVGImage.new(options[:width] || 1500, options[:height] || 500) do
-          point_streams = [guides, *points.map{|c| c[:main]}]
+        svg = Rasem::SVGImage.new(options[:width] || width, options[:height] || height) do
+          point_streams = [*points.map{|c| c[:main]}, guides]
           point_streams.each_with_index do |point_stream, index|
-            color = colors.shift
+            style = styles.shift.merge(fill: 'none')
             # Break the stream into arrays of points, splitting on nil:
             paths = point_stream.chunk{|p| p ? true : nil}.map{|_,v| v}
             paths.each do |path|
               raise "Path needs at least 2 vertices, but it has: #{path.count}" unless path.count >= 2
-              polyline(*(path.map{|v| scope.rasem_scale_vertex(v)}), :stroke => color, :stroke_width => (index==0) ? 0.25 : 0.75, :fill => :none)
+              polyline(*(path.map{|v| scope.rasem_scale_vertex(v)}), style)
             end
           end
-          # Show data values:
+          # Show data values (text):
           points.map{|c| c[:text]}.flatten(1).each do |item|
             text_info = scope.rasem_scale_vertex(item[0]) + item[1..-1]
             text(*text_info)
@@ -374,59 +417,7 @@ module Tango
       end
     end
 
-
-    def old_write_svg(filename, options = {})
-      case (options[:engine] || 'xrvg').to_s
-      when 'xrvg'
-        render = SVGRender[ :filename, filename, :imagesize, '1250px' ]
-        x = @samples.earliest
-        limit = @samples.latest
-        prev_time = nil
-        prev_data = nil
-        last_points = nil
-        channel_points = [[]] * @channels.count
-        each_sample do |time, data|
-          if :initial == time
-            prev_time = 0
-            data.each_with_index do |d, c|
-              channel_points[c] << xyv(0, d[1], c)
-            end
-          else
-            data.each_with_index do |p, ch_index|
-              c,v = p
-              p3 = xyv(time, v, ch_index)
-              p2 = channel_points[ch_index].last.clone
-              p2.x = p3.x - channels[c].risefall / 2
-              channel_points[ch_index] << p2
-              p3.x += channels[c].risefall / 2
-              channel_points[ch_index] << p3
-              if @guidelines
-                lp1 = V2D[time, (-5 + yoffset) * yscale]
-                lp2 = V2D[time, (25 + yoffset) * yscale]
-                render.add(
-                  Line[ :points, [lp1,lp2] ],
-                  Style[ :stroke, "gray", :strokewidth, 0.01 ]
-                )
-              end
-            end
-            prev_time = time
-          end
-        end
-        # Here's a possible way to break streams of points into
-        # line point arrays:
-        # a.chunk{|e| e ? true : nil }.map{|_,v| v}
-        channel_points.each do |points|
-          render.add(
-            Line[ :points, points ],
-            Style[ :stroke, "blue", :strokewidth, 0.2 ]
-          )
-        end
-        render.end
-      else
-        raise RuntimeError, "Unknown SVG engine: #{options[:engine].inspect}"
-      end
-    end
-
   end
 end
+
 

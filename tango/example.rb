@@ -4,11 +4,15 @@ require File.join(__FILE__, '..', 'lib/tango')
 
 t = Tango::Scope.new do
   units :us
+  lead_in 5
   risefall 0.3
-  guidelines true
-  time_scale 8
+  #guidelines true
+  time_scale 6
+  #width 1800
+  width 2200
+  height 275
   channel :CLK, initial: false
-  channel :DATA, initial: true
+  channel :DATA, initial: true, :font_size => 9
   channel :LATCH, initial: false, negative: true
   channel :STROBE, initial: false, negative: true
   repeat(:n, 'lines', period: 14400) do |line|
@@ -16,6 +20,7 @@ t = Tango::Scope.new do
     sample 0..9, CLK: true
     # 8 bytes get pumped out:
     repeat(8, 'bytes') do |byte|
+      label "Start byte #{7-byte}"
       # 8 bits per byte. NOTE: "compress: false" is a hint that, when
       # trying to render a compressed version of this timing, we DON'T
       # want this block to be subject to time compression.
@@ -43,5 +48,5 @@ t = Tango::Scope.new do
   end
 end
 
-t.write_csv('example.csv')
-t.write_svg('example.svg', width: 1800, height: 400)
+#t.write_csv('example.csv')
+t.write_svg('example.svg')
