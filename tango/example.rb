@@ -5,7 +5,7 @@ require File.join(__FILE__, '..', 'lib/tango')
 t = Tango::Scope.new do
   units :us
   lead_in 5
-  risefall 0.3
+  risefall 0.1
   #guidelines true
   time_scale 6
   width 2250

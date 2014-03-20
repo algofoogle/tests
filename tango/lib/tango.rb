@@ -125,6 +125,7 @@ module Tango
     end
 
     def units_string
+      # Make sure "us" is rendered with a mu (micro):
       :us == @units ? '&#956;s' : @units.to_s
     end
 
@@ -265,7 +266,7 @@ module Tango
       elsif value == false
         y = 1
       elsif Float === value
-        y = value
+        y = -value
       else
         y = 1
       end
@@ -309,35 +310,61 @@ module Tango
             name,value = cd
             ch = channels[name]
             rf = points[ci][:rf] * time_scale / 2
+            last_point = points[ci][:main].last
             # Create the point for this sample:
             sample_point = xy(time, value, ci)
             # Create the point that bridges the previous sample with this one:
-            gap_point = [sample_point[0] - rf, points[ci][:main].last[1]]
-            gap_point[1]
+            gap_point = [sample_point[0] - rf, last_point[1]]
             # Add both samples to the stream:
             points[ci][:main] << gap_point
             sample_point[0] += rf
             points[ci][:main] << sample_point
             # Render the sample arbitrary text if needed:
             if (String === value || Symbol === value)
+              # We're in an arbitrary sample value...
+              if points[ci][:sub][-1].nil?
+                points[ci][:sub] << points[ci][:main][-4]
+                nextum = xy(time, true, ci)
+                nextum[0] = points[ci][:main][-3][0]
+                #jump_point = xy(time, true, ci)
+                #jump_point[0] -= rf
+                #points[ci][:sub] << jump_point
+                points[ci][:sub] << nextum
+              end
+
+              # points[ci][:sub] << last_point
+              # jump_point = xy(time, true, ci)
+              # jump_point[0] -= rf
+              # points[ci][:sub] << jump_point
+              # points[ci][:sub] << nil
               if value.to_s != last_sample[name].to_s
                 # This is the start of a new arbitrary sample value...
+                nextum = xy(time, true, ci)
+                nextum[0] -= rf
+                points[ci][:sub] << nextum
+                nextum = xy(time, false, ci)
+                nextum[0] += rf
+                points[ci][:sub] << nextum
+                points[ci][:sub] << nil
+                # Do the text:
                 font_size = ch[:font_size] || '10px'
                 font_size = font_size.to_s + 'px' unless String === font_size
+                text_point = xy(time, -0.15, ci)
+                text_point[0] += 1
                 points[ci][:text] << [
-                  xy(time, 0.25, ci),
+                  text_point,
                   value.to_s,
                   'font-family' => 'helvetica',
                   'font-size' => font_size,
                 ]
-                # Was the previous sample value also arbitrary?
-                # If so, we put in a division:
-                ls = last_sample[name]
-                if String === ls || Symbol === ls
-                  top = xy(time, true, ci)
-                  bot = xy(time, false, ci)
-                  points[ci][:sub] += [top, bot, nil]
-                end
+                # # Was the previous sample value also arbitrary?
+                # # If so, we put in a division:
+                # ls = last_sample[name]
+                # if String === ls || Symbol === ls
+                #   top = xy(time, true, ci)
+                #   bot = xy(time, false, ci)
+                #   points[ci][:sub] += [top, bot, nil]
+                # end
               end
             end
           end
@@ -430,11 +457,13 @@ module Tango
           colour_set << (c[:color] || base_colors.first)
           base_colors.rotate!
         end
-        styles = colour_set.map{|c| waveform_style.merge( stroke: c ) }
-        styles += [
-          { stroke: 'cyan', stroke_width: 0.40 },
-          { stroke: 'gray', stroke_width: 0.25 },
-        ]
+        base_styles = colour_set.map{|c| waveform_style.merge( stroke: c ) }
+        styles =
+          base_styles + [
+            { stroke: 'cyan', stroke_width: 0.40 },
+            { stroke: 'gray', stroke_width: 0.25 },
+          ] +
+          base_styles
         points = @points
         guides = @guides
         scope = self
