@@ -109,7 +109,7 @@ module Tango
     def initialize(&block)
       @lead_in = 0
       @now = 0
-      @units = :us
+      units(:us)
       @channels = Channels.new
       @labels = Labels.new
       @samples = Samples.new
@@ -122,6 +122,10 @@ module Tango
     # :d, :h, :m, :s, :ms, :us, :ns, :ps, :fs
     def units(u)
       @units = u
+    end
+
+    def units_string
+      :us == @units ? '&#956;s' : @units.to_s
     end
 
     # Create a new channel.
@@ -350,7 +354,7 @@ module Tango
         points[cc][:main] += line
         text_item = [
           [line[0][0], 2.5],
-          "#{'%0.3f' % (time-@lead_in)}#{@units}\n#{text}",
+          "#{'%0.3f' % (time-@lead_in)}#{units_string}\n#{text}",
           'font-family' => 'helvetica',
           'font-size' => '10px',
         ]
@@ -369,7 +373,7 @@ module Tango
           if major
             points[cc][:text] << [
               t[1],
-              "#{"%0.#{@ruler[:decimals] || 2}f" % (x-@lead_in)}#{@units}",
+              "#{"%0.#{@ruler[:decimals] || 2}f" % (x-@lead_in)}#{units_string}",
               'font-family' => 'helvetica',
               'font-size' => '10px',
             ]
@@ -407,6 +411,14 @@ module Tango
       [(vertex[0]+offset[0])*14/9, (vertex[1]+offset[1])*20+5]
     end
 
+    def waveform_style(set = nil)
+      if set
+        @waveform_style = waveform_style.merge(set)
+      else
+        @waveform_style || { stroke_width: 0.7 }
+      end
+    end
+
     def write_svg(filename, options = {})
       case (options[:engine] || 'rasem').to_s
       when 'rasem'
@@ -418,7 +430,7 @@ module Tango
           colour_set << (c[:color] || base_colors.first)
           base_colors.rotate!
         end
-        styles = colour_set.map{|c| { stroke: c, stroke_width: 0.7 } }
+        styles = colour_set.map{|c| waveform_style.merge( stroke: c ) }
         styles += [
           { stroke: 'cyan', stroke_width: 0.40 },
           { stroke: 'gray', stroke_width: 0.25 },
