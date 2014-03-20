@@ -115,6 +115,7 @@ module Tango
       @samples = Samples.new
       @risefall = 0
       @ruler = {}
+      @measurements = []
       instance_eval(&block)
     end
 
@@ -271,6 +272,21 @@ module Tango
         y = 1
       end
       [scaled_time(time), baseline_for_channel(channel_index) + y*channel_height]
+    end
+
+    def measure(*args, &block)
+      options = (Hash === args.last) ? args.pop : {}
+      measure_name = args.first
+      measure_name = " (#{measure_name})" if measure_name
+      unless @measurements.include?(measure_name)
+        start = @now
+        block.call
+        duration = @now - start
+        puts "measure#{measure_name}: #{duration}"
+        @measurements << measure_name
+      else
+        block.call
+      end
     end
 
 
