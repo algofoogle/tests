@@ -51,6 +51,10 @@ t = Tango::Scope.new do
       label "Start heater; burn line"
       sample 0, STROBE: true
     end
+    analog(0..10, samples: 20, scale: :normal) do |x,index|
+      # Ramp from -1 to 1:
+      (2.0 * x) - 1.0
+    end
     # Keep it asserted for 5.68ms, then raise it again:
     sample 5680, STROBE: false
   end
