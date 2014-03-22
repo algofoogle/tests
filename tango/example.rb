@@ -26,13 +26,15 @@ t = Tango::Scope.new do
           # 8 bits per byte. NOTE: "compress: false" is a hint that, when
           # trying to render a compressed version of this timing, we DON'T
           # want this block to be subject to time compression.
-          measure('bit loop') do
-            repeat(8, 'bits', compress: false) do |bit|
-              # CLK goes low at this point, for 1us, as this bit is stabilised:
-              sample 0..1, CLK: false, DATA: "b#{63-byte*8-bit}"
-              # CLK goes high for 1us; rising edge clocks the data in:
-              sample 0..1, CLK: true
-            end # Bit loop.
+          zoom('Pushing a byte via SPI', pad: 2) do
+            measure('bit loop') do
+              repeat(8, 'bits', compress: false) do |bit|
+                # CLK goes low at this point, for 1us, as this bit is stabilised:
+                sample 0..1, CLK: false, DATA: "b#{63-byte*8-bit}"
+                # CLK goes high for 1us; rising edge clocks the data in:
+                sample 0..1, CLK: true
+              end # Bit loop.
+            end
           end
           # Hold DATA for 1us longer at the end of the byte, then raise it:
           sample 1, DATA: true
@@ -51,9 +53,18 @@ t = Tango::Scope.new do
       label "Start heater; burn line"
       sample 0, STROBE: true
     end
-    analog(0..10, samples: 20, scale: :normal) do |x,index|
+    # NOTE: With analog(), 'time' steps from minimum to maximum across the range
+    # given, while 'x' steps based on scale, where :normal means we range 0.0..1.0.
+    # Meanwhile, 'index' is just the sample number.
+    # NOTE: It might make more sense to turn this into a generic time division/loop
+    # block, so that we can make it record to multiple channels at once, if it
+    # wants, and so other stuff. In fact, ALL of this could just be a subset of repeat()...?
+    analog(0..10, :LATCH, samples: 50, scale: :normal, include_last: true) do |time,x,last_value,index|
       # Ramp from -1 to 1:
-      (2.0 * x) - 1.0
+      #(2.0 * x) - 1.0
+      y = Math.sin(x*2.0*Math::PI)
+      sample 0, DATA: (y<(last_value||0))
+      y
     end
     # Keep it asserted for 5.68ms, then raise it again:
     sample 5680, STROBE: false

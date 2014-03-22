@@ -60,7 +60,7 @@ module Tango
       if self[time]
         # Check this sample record to reject any conflicting channel samples:
         conflicting = self[time].keys & new_data.keys
-        raise "Simultaneous sample recorded at #{time} for channel(s): #{conflicting.join(', ')} -- Data: #{self[time].inspect}"
+        raise "Simultaneous sample (#{conflicting}) recorded at #{time} for channel(s): #{conflicting.join(', ')} -- Data: #{self[time].inspect}" unless conflicting.empty?
         # Update the sample with extra channel(s):
         self[time].merge!(new_data)
       else
@@ -107,15 +107,16 @@ module Tango
     attr_accessor :units
 
     def initialize(&block)
-      @lead_in = 0
-      @now = 0
+      @lead_in = 0.0
+      @now = 0.0
       units(:us)
       @channels = Channels.new
       @labels = Labels.new
       @samples = Samples.new
-      @risefall = 0
+      @risefall = 0.0
       @ruler = {}
       @measurements = []
+      @zooms = []
       instance_eval(&block)
     end
 
@@ -276,16 +277,56 @@ module Tango
 
     def measure(*args, &block)
       options = (Hash === args.last) ? args.pop : {}
-      measure_name = args.first
-      measure_name = " (#{measure_name})" if measure_name
-      unless @measurements.include?(measure_name)
+      name = args.first
+      unless @measurements.include?(name)
         start = @now
         block.call
         duration = @now - start
-        puts "measure#{measure_name}: #{duration}"
-        @measurements << measure_name
+        @measurements << name
+        puts "WARNING: measurement rendering not yet implemented; measure(#{name}): #{duration}"
+        # TODO: RENDER the measure:
+        # * For now, could just be a header/footer "H" bar (e.g.: |---- name: 23us ---- |);
+        # * Later, add support for placing between nominated channels, and relating between channels.
       else
         block.call
+      end
+    end
+
+    def zoom(name, options = {}, &block)
+      unless @zooms.include?(name)
+        zoom_head = @now - (options[:pad_in] || options[:pad] || 0)
+        block.call
+        zoom_tail = @now + (options[:pad_out] || options[:pad] || 0)
+        @zooms << name
+        # TODO: RENDER the zoom. Need to add support for "scale"; i.e. how wide should the zoom window be?
+        puts "WARNING: zoom rendering not yet implemented; zoom(#{name}) covers #{(zoom_head..zoom_tail).inspect}"
+      else
+        block.call
+      end
+    end
+
+    def analog(time_range, target_channel, options = {}, &block)
+      scale = options[:scale] || :normal
+      raise RuntimeError, "Unsupported analog() function 'X' scale: #{scale.inspect}" unless scale == :normal
+      if options[:samples]
+        # Fixed number of sample points in the range:
+        size = (time_range.last-time_range.first).to_f
+        count = options[:samples]
+        start = @now
+        # NOTE: By default, we don't sample the maximum point, but we still
+        # do advance @now to this point:
+        value = nil
+        (count + (options[:include_last] ? 1 : 0)).times do |index|
+          pct = (index.to_f/count)
+          time = pct * size
+          @now = start + time
+          # NOTE: When we support other scales, we have to modify the 2nd argument ('pct') below:
+          value = block.call(time, pct, value, index)
+          sample 0, target_channel => value if value
+        end
+        @now = start + time_range.last
+      else
+        raise RuntimeError, "You have to use 'samples: ...' step mode with analog(), for now."
       end
     end
 
