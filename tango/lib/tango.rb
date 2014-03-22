@@ -186,14 +186,50 @@ module Tango
       @labels << ll
     end
 
+    def mark
+      @labels << Label.new( [now, nil] )
+    end
+
     # Define a block that repeats.
-    def repeat(count, name, options={}, &block)
+    def repeat(range, name, options={}, &block)
       base_time = now
-      num = (:n == count) ? 1 : count
-      p = options[:period]
-      num.times do |n|
-        @now = base_time + n*p if p
-        yield n
+      if Range === range
+        start = (@now += range.first)
+        # This repeats to fill a time range.
+        if options[:samples]
+          # Repeat for a specific number of time divisions.
+          size = (range.last-range.first).to_f
+          count = options[:samples]
+          # NOTE: By default, we don't sample the maximum point, but we still
+          # do advance @now to this point:
+          value = nil
+          inc = options[:inclusive]
+          count.times do |index|
+            pct = (index.to_f/(count - (inc ? 1 : 0)))
+            time = pct * size
+            new_time = start + time
+            raise RuntimeError, "Overlapping time in sample-based repeat!" if @now > new_time
+            @now = start + time
+            # NOTE: When we support other scales, we have to modify the 2nd argument ('pct') below:
+            block.call(index, pct, time)
+          end
+          @now = start + size unless inc
+        else
+          # Repeat until we're over the range limit.
+          n = 0
+          until @now >= start+range.last
+            yield n
+            n += 1
+          end
+        end
+      else
+        # This is a simple loop:
+        num = (:n == range) ? 1 : range
+        p = options[:period]
+        num.times do |n|
+          @now = base_time + n*p if p
+          yield n
+        end
       end
     end
 
@@ -213,6 +249,10 @@ module Tango
       end
     end
 
+    def seek(time)
+      @now = time
+    end
+
     def guidelines(state)
       @guidelines = state
     end
@@ -230,6 +270,12 @@ module Tango
     # Vertical offset for the first channel.
     def channel_offset
       5
+    end
+
+    def untimed
+      time = @now
+      yield
+      @now = time
     end
 
     def baseline_for_channel(channel_index)
@@ -305,30 +351,6 @@ module Tango
       end
     end
 
-    def analog(time_range, target_channel, options = {}, &block)
-      scale = options[:scale] || :normal
-      raise RuntimeError, "Unsupported analog() function 'X' scale: #{scale.inspect}" unless scale == :normal
-      if options[:samples]
-        # Fixed number of sample points in the range:
-        size = (time_range.last-time_range.first).to_f
-        count = options[:samples]
-        start = @now
-        # NOTE: By default, we don't sample the maximum point, but we still
-        # do advance @now to this point:
-        value = nil
-        (count + (options[:include_last] ? 1 : 0)).times do |index|
-          pct = (index.to_f/count)
-          time = pct * size
-          @now = start + time
-          # NOTE: When we support other scales, we have to modify the 2nd argument ('pct') below:
-          value = block.call(time, pct, value, index)
-          sample 0, target_channel => value if value
-        end
-        @now = start + time_range.last
-      else
-        raise RuntimeError, "You have to use 'samples: ...' step mode with analog(), for now."
-      end
-    end
 
 
     def render_to_points
@@ -436,13 +458,15 @@ module Tango
       labels.each do |time, text|
         line = guide(time)
         points[cc][:main] += line
-        text_item = [
-          [line[0][0], 2.5],
-          "#{'%0.3f' % (time-@lead_in)}#{units_string}\n#{text}",
-          'font-family' => 'helvetica',
-          'font-size' => '10px',
-        ]
-        points[cc][:text] << text_item
+        if text
+          text_item = [
+            [line[0][0], 2.5],
+            "#{'%0.3f' % (time-@lead_in)}#{units_string}\n#{text}",
+            'font-family' => 'helvetica',
+            'font-size' => '10px',
+          ]
+          points[cc][:text] << text_item
+        end
       end
       @points = points
       if @ruler[:enabled]

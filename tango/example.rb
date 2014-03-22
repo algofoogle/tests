@@ -8,7 +8,7 @@ t = Tango::Scope.new do
   risefall 0.1
   #guidelines true
   time_scale 6
-  width 2250
+  width 2500
   height 350
   ruler step: 1, major: 5, decimals: 0
   channel :CLK, initial: false, color: '#369'
@@ -53,21 +53,23 @@ t = Tango::Scope.new do
       label "Start heater; burn line"
       sample 0, STROBE: true
     end
-    # NOTE: With analog(), 'time' steps from minimum to maximum across the range
-    # given, while 'x' steps based on scale, where :normal means we range 0.0..1.0.
-    # Meanwhile, 'index' is just the sample number.
-    # NOTE: It might make more sense to turn this into a generic time division/loop
-    # block, so that we can make it record to multiple channels at once, if it
-    # wants, and so other stuff. In fact, ALL of this could just be a subset of repeat()...?
-    analog(0..10, :LATCH, samples: 50, scale: :normal, include_last: true) do |time,x,last_value,index|
-      # Ramp from -1 to 1:
-      #(2.0 * x) - 1.0
-      y = Math.sin(x*2.0*Math::PI)
-      sample 0, DATA: (y<(last_value||0))
-      y
+    {
+      CLK: 5,
+      DATA: 6,
+      LATCH: 7
+    }.each do |ch, sam|
+      untimed do
+        repeat(3..35, 'test', samples: sam) do |num, pct, time|
+          #mark
+          sample 0..1, ch => false
+          sample 0, ch => true
+        end
+        sample 0, ch => true
+      end
     end
     # Keep it asserted for 5.68ms, then raise it again:
-    sample 5680, STROBE: false
+    #sample 5680, STROBE: false
+    sample 2, STROBE: false
   end
 end
 
