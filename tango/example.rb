@@ -5,14 +5,15 @@ require File.join(__FILE__, '..', 'lib/tango')
 t = Tango::Scope.new do
   units :us
   lead_in 5
-  risefall 0.3
+  risefall 0.2
   #guidelines true
-  time_scale 22
-  width 2500
+  time_scale 6.5
+  width 2800
   height 350
   ruler step: 1, major: 5, decimals: 0
+  #point_size 1.5
   channel :CLK, initial: false, color: '#369'
-  channel :DATA, initial: true, font_size: 9
+  channel :DATA, initial: true, font_size: 9, risefall: 0.5
   channel :LATCH, initial: false, negative: true
   channel :STROBE, initial: false, negative: true
   repeat(:n, 'lines', period: 14400) do |line|

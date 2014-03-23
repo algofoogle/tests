@@ -110,6 +110,34 @@ module Tango
     attr_reader :samples
     attr_accessor :units
 
+    def self.attr_helper(*args)
+      # Check correct arg count:
+      raise ArgumentError, "attr_helper: Wrong number of arguments (#{args.count} for 1..2)" unless (1..2).cover?(args.count)
+      # Determine var name:
+      name = args.shift
+      vn = "@#{name}"
+      # Determine reader method, with default handling (where specified):
+      if args.empty?
+        reader_def = vn
+      else
+        reader_def = "defined?(#{vn}) ? #{vn} : #{args.first}"
+      end
+      # Define the method that reads, and that implicitly writes, the var:
+      self.class_eval <<-EOH
+        def #{name}(*args)
+          if args.empty?
+            #{reader_def}
+          elsif args.count == 1
+            #{vn} = args.first
+          else
+            raise ArgumentError, "Too many arguments for #{name}(): \#{args.count} for 0..1"
+          end
+        end
+      EOH
+    end
+
+    attr_helper :point_size, false
+
     def initialize(&block)
       @lead_in = 0.0
       @now = 0.0
@@ -585,22 +613,51 @@ module Tango
         guides = @guides
         scope = self
         style = nil
+        sp = point_size
         # TODO: Default width and height should be based on extents of the data.
         svg = Rasem::SVGImage.new(options[:width] || width, options[:height] || height) do
           point_streams = [*points.map{|c| c[:main]}, guides, *points.map{|c| c[:sub]}]
           point_streams.each_with_index do |point_stream, index|
-            style = styles.shift.merge(fill: 'none') unless styles.empty?
-            # Break the stream into arrays of points, splitting on nil:
-            paths = point_stream.chunk{|p| p ? true : nil}.map{|_,v| v}
-            paths.each do |path|
-              raise "Path needs at least 2 vertices, but it has: #{path.count}" unless path.count >= 2
-              polyline(*(path.map{|v| scope.rasem_scale_vertex(v)}), style)
-            end
+            group do
+              style = styles.shift.merge(fill: 'none') unless styles.empty?
+              # Break the stream into arrays of points, splitting on nil:
+              paths = point_stream.chunk{|p| p ? true : nil}.map{|_,v| v}
+              paths.each do |path|
+                raise "Path needs at least 2 vertices, but it has: #{path.count}" unless path.count >= 2
+                # "Compact" the points by removing points which don't change the shape of the line.
+                # This also fixes glitches when using "repeat(..., samples: X)" inside an "untimed" block,
+                # though I should really get to the bottom of that (which seems to have something to do
+                # with incorrectly applying the rise/fall-time offset).
+                flat_path = []
+                path.each_with_index do |pt, index|
+                  if index == 0 || index == path.count-1
+                    flat_path << pt
+                  else
+                    flat_path << pt unless flat_path.last[1] == pt[1] && pt[1] == path[index+1][1]
+                  end
+                end
+                path = flat_path
+                # Render the line:
+                polyline(*(path.map{|v| scope.rasem_scale_vertex(v)}), style)
+                if sp
+                  # Render the points of the line:
+                  group do
+                    path.each do |pt|
+                      circle(*(scope.rasem_scale_vertex(pt)), sp, style.merge(:fill => style[:stroke]))
+                    end # points loop.
+                  end # points sub-group.
+                end # render points?
+              end # paths.each
+            end # channel lines group.
           end
           # Show data values (text):
-          points.map{|c| c[:text]}.flatten(1).each do |item|
-            text_info = scope.rasem_scale_vertex(item[0]) + item[1..-1]
-            text(*text_info)
+          points.map{|c| c[:text]}.each do |text_group|
+            group do
+              text_group.each do |item|
+                text_info = scope.rasem_scale_vertex(item[0]) + item[1..-1]
+                text(*text_info)
+              end
+            end
           end
         end # svg
         File.open(filename, 'w') do |file|
