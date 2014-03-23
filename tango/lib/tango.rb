@@ -160,29 +160,55 @@ module Tango
     # Number of pixels to indent waveforms, to make space for labels:
     attr_helper :time_offset, 60
 
+    # Define the units for this scope.
+    # :d, :h, :m, :s, :ms, :us, :ns, :ps, :fs
+    attr_helper :units, :us
 
 
     def initialize(&block)
       @now = 0.0
-      units(:us)
       @channels = Channels.new
       @labels = Labels.new
       @samples = Samples.new
       @ruler = {}
-      @measurements = []
+      @measurements = {}
       @zooms = []
       instance_eval(&block)
     end
 
-    # Define the units for this scope.
-    # :d, :h, :m, :s, :ms, :us, :ns, :ps, :fs
-    def units(u)
-      @units = u
+
+    UNIT_MAP = [
+      [:fs, 1000.0],
+      [:ps, 1000.0],
+      [:ns, 1000.0],
+      [:us, 1000.0],
+      [:ms, 1000.0],
+      [:s, 1000.0],
+      [:m, 60.0],
+      [:h, 60.0],
+      [:d, 24.0]
+    ]
+
+    def scale_units(value, from_units, to_units)
+      v = value.to_f
+      range = (
+        UNIT_MAP.find_index {|e| e[0] == from_units} ..
+        UNIT_MAP.find_index {|e| e[0] == to_units}
+      )
+      if range.first < range.last
+        # We're going from small units to bigger units:
+        range.to_a[1..-1].map{|e| UNIT_MAP[e][1]}.each { |m| v /= m }
+      else
+        # We're going from big units to smaller units:
+        range.first.downto(range.last).map{|e| UNIT_MAP[e][1]}[0..-2].each { |m| v *= m }
+      end
+      v
     end
 
-    def units_string
+    def units_string(my_units = nil)
+      uu = my_units || @units
       # Make sure "us" is rendered with a mu (micro):
-      :us == @units ? '&#956;s' : @units.to_s
+      :us == uu ? '&#956;s' : uu.to_s
     end
 
     # Create a new channel.
@@ -232,8 +258,7 @@ module Tango
 
     # Mark the current time with a label:
     def label(name)
-      ll = Label.new( [now, name] )
-      @labels << ll
+      @labels << Label.new( [now, name] )
     end
 
     def mark
@@ -286,6 +311,7 @@ module Tango
           @now = base_time + n*p if p
           yield n
         end
+        @now = base_time + num*p if p
       end
     end
 
@@ -325,7 +351,7 @@ module Tango
 
     def guide(time)
       t = scaled_time(time)
-      [ [t,baseline_for_channel(-1)], [t,baseline_for_channel(channels.count)], nil ]
+      [ [t,2.0], [t,baseline_for_channel(channels.count)], nil ]
     end
 
     def tick(time, major = false)
@@ -356,15 +382,17 @@ module Tango
     def measure(*args, &block)
       options = (Hash === args.last) ? args.pop : {}
       name = args.first
-      unless @measurements.include?(name)
+      unless @measurements[name] || (options.has_key?(:select) && !options[:select])
         start = @now
         block.call
         duration = @now - start
-        @measurements << name
-        puts "WARNING: measurement rendering not yet implemented; measure(#{name}): #{duration}"
-        # TODO: RENDER the measure:
-        # * For now, could just be a header/footer "H" bar (e.g.: |---- name: 23us ---- |);
-        # * Later, add support for placing between nominated channels, and relating between channels.
+        @measurements[name] = {
+          begin: start,
+          end: @now,
+          y: (options[:y] || (channels.count-0.5)),
+          align: (options[:align] || :left),
+          units: (options[:units] || units)
+        }
       else
         block.call
       end
@@ -408,7 +436,7 @@ module Tango
               name.to_s,
               'font-family' => 'helvetica, arial, sans-serif',
               'font-weight' => 'bold',
-              'text-decoration' => ch[:negative] ? 'overline' : 'none'
+              'text-decoration' => ch[:negative] ? 'overline' : 'none',
             ]
             points[ci][:main] << xy(0, value, ci)
             # Get rise-fall value for this channel:
@@ -522,7 +550,7 @@ module Tango
         points[cc][:main] += line
         if text
           text_item = [
-            [line[0][0], 2.5],
+            [line[0][0], 2.5], # This places the label TEXT comfortably beneath the ruler.
             "#{'%0.3f' % (time-@lead_in)}#{units_string}\n#{text}",
             'font-family' => 'helvetica',
             'font-size' => '10px',
@@ -550,6 +578,21 @@ module Tango
           end
           x += @ruler[:step] || 1
         end
+      end
+      # Render measurements:
+      @mezdata = {}
+      @measurements.each do |name,mez|
+        start = xy(mez[:begin], 0.5, mez[:y])
+        stop = xy(mez[:end], 0.5, mez[:y])
+        usuffix = units_string(mez[:units])
+        size = scale_units(mez[:end]-mez[:begin], units, mez[:units])
+        md = {
+          y: start[1], height: channel_height,
+          in: start[0], out: stop[0],
+          text: "#{name}:\n#{'%0.3f' % (size)}#{usuffix}",
+          align: mez[:align]
+        }
+        @mezdata[name] = md
       end
       true
     end
@@ -604,14 +647,22 @@ module Tango
         base_styles = colour_set.map{|c| waveform_style.merge( stroke: c ) }
         styles =
           base_styles + [
+            # Style for marks/labels:
             { stroke: 'cyan', stroke_width: 0.40 },
+            # Style for ruler:
             { stroke: 'gray', stroke_width: 0.25 },
           ] +
-          base_styles
+          base_styles + [
+            # Style for SECONDARY marks/labels (should be unused!)
+            { stroke: 'red', stroke_width: 2.0 },
+            # Style for measurements:
+            { stroke: 'magenta', stroke_width: 0.40 },
+          ]
         points = @points
         guides = @guides
         scope = self
         style = nil
+        measures = @mezdata
         sp = point_size
         # TODO: Default width and height should be based on extents of the data.
         svg = Rasem::SVGImage.new(options[:width] || width, options[:height] || height) do
@@ -619,6 +670,10 @@ module Tango
           point_streams.each_with_index do |point_stream, index|
             group do
               style = styles.shift.merge(fill: 'none') unless styles.empty?
+              if style[:stroke] == 'magenta'
+                puts style.inspect
+                puts point_stream.inspect
+              end
               # Break the stream into arrays of points, splitting on nil:
               paths = point_stream.chunk{|p| p ? true : nil}.map{|_,v| v}
               paths.each do |path|
@@ -655,6 +710,51 @@ module Tango
               text_group.each do |item|
                 text_info = scope.scale_vertex(item[0]) + item[1..-1]
                 text(*text_info)
+              end
+            end
+          end
+          # TODO: Rendering for measures:
+          # * For now, could just be a header/footer "H" bar (e.g.: |---- name: 23us ---- |);
+          # * Later, add support for placing between nominated channels, and relating between channels.
+          style = styles.shift || { stroke: 'red', stroke_width: 2.0 }
+          group do
+            measures.each do |name, mez|
+              group do
+                y = mez[:y]
+                hh = mez[:height] / 2.0
+                # Render head & tail bars:
+                horiz = []
+                [:in, :out].each do |x|
+                  t = scope.scale_vertex( [mez[x], y-hh] )
+                  b = scope.scale_vertex( [mez[x], y+hh] )
+                  horiz << scope.scale_vertex( [mez[x], y] )
+                  line(*(t+b), style.merge( stroke_width: 1.0 ))
+                end
+                # Now render the joining line:
+                line(*(horiz.flatten), style)
+                # ...and the label(s):
+                align_set = (mez[:align] == :all) ? %w(left center right) : mez[:align]
+                [*align_set].each do |align|
+                  case align.to_sym
+                  when :left
+                    text_point = [ horiz[0][0]-2, horiz[0][1] ]
+                    anchor = 'end'
+                  when :center, :mid, :middle
+                    text_point = [ (horiz[0][0]+horiz[1][0])/2.0, horiz[0][1] ]
+                    anchor = 'middle'
+                  when :right
+                    text_point = [ horiz[1][0]+2, horiz[0][1] ]
+                    anchor = 'start'
+                  else
+                    raise RuntimeError, "Unknown measurement align: #{mez[:align].inspect}"
+                  end
+                  text(
+                    *text_point, mez[:text],
+                    'font-family' => 'helvetica',
+                    'font-size' => '9px',
+                    'text-anchor' => anchor
+                  )
+                end
               end
             end
           end
