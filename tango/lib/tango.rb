@@ -2,6 +2,10 @@ require 'rasem'
 
 module Tango
 
+  class Peak; end
+  class Trough; end
+  class Tristate; end
+
   # Describes a channel:
   class Channel < Hash
     def risefall
@@ -30,10 +34,10 @@ module Tango
 
   # Collects all labels:
   class Labels < Array
-    def <<(label)
-      super
-      self.sort!
-    end
+    # def <<(label)
+    #   super
+    #   self.sort!
+    # end
   end
 
   # Describes a sample, for one or more channels, recorded at a point in time:
@@ -309,13 +313,15 @@ module Tango
     end
 
     def xy(time, value, channel_index)
-      if value == true
+      if value == true || Peak == value
         y = -1
-      elsif value == false
+      elsif value == false || Trough == value
         y = 1
       elsif Float === value
         y = -value
-      else
+      elsif value == Tristate
+        y = 0
+      else # Arbitrary value:
         y = 1
       end
       [scaled_time(time), baseline_for_channel(channel_index) + y*channel_height]
@@ -350,7 +356,6 @@ module Tango
         block.call
       end
     end
-
 
 
     def render_to_points
@@ -389,42 +394,59 @@ module Tango
             name,value = cd
             ch = channels[name]
             rf = points[ci][:rf] * time_scale / 2
-            last_point = points[ci][:main].last
-            # Create the point for this sample:
-            sample_point = xy(time, value, ci)
-            # Create the point that bridges the previous sample with this one:
-            gap_point = [sample_point[0] - rf, last_point[1]]
-            # Add both samples to the stream:
-            points[ci][:main] << gap_point
-            sample_point[0] += rf
-            points[ci][:main] << sample_point
-            # Render the sample arbitrary text if needed:
-            if (String === value || Symbol === value)
-              # We're in an arbitrary sample value...
-              if points[ci][:sub][-1].nil?
-                points[ci][:sub] << points[ci][:main][-4]
-                nextum = xy(time, true, ci)
-                nextum[0] = points[ci][:main][-3][0]
-                #jump_point = xy(time, true, ci)
-                #jump_point[0] -= rf
-                #points[ci][:sub] << jump_point
-                points[ci][:sub] << nextum
-              end
 
-              # points[ci][:sub] << last_point
-              # jump_point = xy(time, true, ci)
-              # jump_point[0] -= rf
-              # points[ci][:sub] << jump_point
-              # points[ci][:sub] << nil
-              if value.to_s != last_sample[name].to_s
-                # This is the start of a new arbitrary sample value...
-                nextum = xy(time, true, ci)
-                nextum[0] -= rf
-                points[ci][:sub] << nextum
-                nextum = xy(time, false, ci)
-                nextum[0] += rf
-                points[ci][:sub] << nextum
-                points[ci][:sub] << nil
+            # Is this sample an arbitrary value?
+            is_arb = (String === value || Symbol === value)
+            # Was the previous sample arbitrary?
+            last = last_sample[name]
+            was_arb = (String === last || Symbol === last)
+            # Is this sample different from the last?
+            changed = (value != last)
+
+            if is_arb
+              # Calculate our TARGETS for top & bottom:
+              bot_target = xy(time, Trough, ci)
+              top_target = xy(time, Peak, ci)
+              # This is an arbitrary value...
+              if was_arb
+                # Previous point was arbitrary too... is it maybe unchanged?
+                if changed
+                  # OK, we've got a change, so break the lines and reset:
+                  new_main = [nil, points[ci][:sub].last.clone]
+                  new_sub = [nil, points[ci][:main].last.clone]
+                  points[ci][:main] += new_main
+                  points[ci][:sub] += new_sub
+                  # Gap points:
+                  points[ci][:main] << [bot_target[0]-rf, bot_target[1]]
+                  points[ci][:sub] << [top_target[0]-rf, top_target[1]]
+                  # Final switch points:
+                  bot_target[0] += rf
+                  top_target[0] += rf
+                  points[ci][:main] << top_target
+                  points[ci][:sub] << bot_target
+                else # Still arbitrary, and NOT changed...
+                  # Hasn't changed, so just extend it.
+                  # Now just use the new target points:
+                  bot_target[0] += rf
+                  top_target[0] += rf
+                  points[ci][:main] << top_target
+                  points[ci][:sub] << bot_target
+                end # changed
+              else # NOT arbitrary...
+                # Previous point was NOT arbitrary.
+                last_point = points[ci][:main].last
+                # Determine the gap point:
+                gap = [bot_target[0]-rf, last_point[1]]
+                # This is needed for both :main and :sub...
+                points[ci][:main] << gap
+                points[ci][:sub] << gap
+                # OK, now put the target in both, and break the respective lines:
+                bot_target[0] += rf
+                top_target[0] += rf
+                points[ci][:main] << top_target
+                points[ci][:sub] << bot_target
+              end # was_arb
+              if changed
                 # Do the text:
                 font_size = ch[:font_size] || '10px'
                 font_size = font_size.to_s + 'px' unless String === font_size
@@ -436,17 +458,31 @@ module Tango
                   'font-family' => 'helvetica',
                   'font-size' => font_size,
                 ]
-                # # Was the previous sample value also arbitrary?
-                # # If so, we put in a division:
-                # ls = last_sample[name]
-                # if String === ls || Symbol === ls
-                #   top = xy(time, true, ci)
-                #   bot = xy(time, false, ci)
-                #   points[ci][:sub] += [top, bot, nil]
-                # end
-              end
-            end
-          end
+              end # changed
+            else # NOT arbitrary...
+              # This is NOT an arbitrary value...
+              last_point = points[ci][:main].last
+              # Create the point for this sample:
+              sample_point = xy(time, value, ci)
+              # Create the point that bridges the previous sample with this one:
+              gap_point = [sample_point[0] - rf, last_point[1]]
+              # Add both samples to the stream:
+              points[ci][:main] << gap_point
+              sample_point[0] += rf
+              points[ci][:main] << sample_point
+              # Was the previous an arbitrary, tho?
+              if was_arb
+                # OK, at this point, :main has the peak point, and :sub has the trough...
+                # We always prefer :main, so just collapse both to our NEW :main point:
+                penultimate = xy(time, Trough, ci)
+                penultimate[0] -= rf
+                ultimate = points[ci][:main].last.clone
+                points[ci][:sub] << penultimate
+                points[ci][:sub] << ultimate
+                points[ci][:sub] << nil
+              end # was_arb, but not now.
+            end # non-arbitrary.
+          end # data.each_with_index
           if @guidelines
             # Generate guide lines:
             @guides += guide(time)

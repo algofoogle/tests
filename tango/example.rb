@@ -5,9 +5,9 @@ require File.join(__FILE__, '..', 'lib/tango')
 t = Tango::Scope.new do
   units :us
   lead_in 5
-  risefall 0.1
+  risefall 0.3
   #guidelines true
-  time_scale 6
+  time_scale 22
   width 2500
   height 350
   ruler step: 1, major: 5, decimals: 0
@@ -38,6 +38,7 @@ t = Tango::Scope.new do
           end
           # Hold DATA for 1us longer at the end of the byte, then raise it:
           sample 1, DATA: true
+          label "End byte #{7-byte}"
           # Pause for a further 6.75us before starting the next byte:
           step 6.75
         end # Byte loop.
