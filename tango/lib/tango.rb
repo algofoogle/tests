@@ -1,5 +1,28 @@
 require 'rasem'
 
+# Monkey-patch Rasem::SVGImage so we can add a <defs> block:
+class Rasem::SVGImage
+  def add_defs
+    # Start a <defs> block:
+    @output << %Q(<defs>)
+    # Add a marker (markerArrow):
+    @output << %Q(<marker
+      id="markerArrow"
+      markerWidth="13" markerHeight="13"
+      refx="2" refy="6"
+      orient="auto"
+    >)
+    # Define the arrow shape:
+    @output << %Q(<path
+      d="M2,2 L2,11 L10,6 L2,2" style="fill: #000000;"
+    />)
+    # Finish markerArrow:
+    @output << %Q(</marker>)
+    # Finish the <defs> block:
+    @output << %Q(</defs>)
+  end
+end
+
 module Tango
 
   class Peak; end
@@ -706,6 +729,7 @@ module Tango
         sp = point_size
         # TODO: Default width and height should be based on extents of the data.
         svg = Rasem::SVGImage.new(options[:width] || width, options[:height] || height) do
+          svg.add_defs
           point_streams = [*points.map{|c| c[:main]}, guides, *points.map{|c| c[:sub]}]
           point_streams.each_with_index do |point_stream, index|
             group do
