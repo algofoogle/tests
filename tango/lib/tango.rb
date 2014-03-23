@@ -4,24 +4,65 @@ require 'rasem'
 class Rasem::SVGImage
   def add_defs
     # Start a <defs> block:
-    @output << %Q(<defs>)
-    # Add a marker (markerArrow):
-    @output << %Q(<marker
-      id="markerArrow"
-      markerWidth="13" markerHeight="13"
-      refx="2" refy="6"
-      orient="auto"
-    >)
-    # Define the arrow shape:
-    @output << %Q(<path
-      d="M2,2 L2,11 L10,6 L2,2" style="fill: #000000;"
-    />)
-    # Finish markerArrow:
-    @output << %Q(</marker>)
-    # Finish the <defs> block:
-    @output << %Q(</defs>)
+    @output << <<-EOH
+      <defs>
+        <marker
+          id="start-arrow-marker"
+          viewBox="0 0 5 16"
+          refX="0.5" refY="8"
+          markerUnits="strokeWidth"
+          markerWidth="12" markerHeight="40"
+          orient="auto"
+        >
+          <path d="M5,3 L5,13 L1,8 L5,3" fill="magenta" />
+          <rect x="0" y="0" width="1" height="16" fill="magenta" />
+        </marker>
+        <marker
+          id="end-arrow-marker"
+          viewBox="0 0 5 16"
+          refX="4.5" refY="8"
+          markerUnits="strokeWidth"
+          markerWidth="12" markerHeight="40"
+          orient="auto"
+        >
+          <path d="M0,3 L0,13 L4,8 L0,3" fill="magenta" />
+          <rect x="4" y="0" width="1" height="16" fill="magenta" />
+        </marker>
+      </defs>
+    EOH
   end
+
+  alias_method :text_without_inkscape_fix, :text
+
+  def text_with_inkscape_fix(x, y, text, style=DefaultStyles[:text])
+    if $use_inkscape_text_fix
+      @output << %Q{<text x="#{x}" y="#{y}"}
+      style = fix_style(default_style.merge(style))
+      @output << %Q{ font-family="#{style.delete "font-family"}"} if style["font-family"]
+      @output << %Q{ font-size="#{style.delete "font-size"}"} if style["font-size"]
+      fs = (style['font-size'] || '10px')
+      font_size_info = fs.match(/^([0-9.]+)([^0-9.].*)?$/).to_a
+      font_units = font_size_info.pop
+      font_size = font_size_info.pop.to_f
+      write_style style
+      @output << ">"
+      dy = 0 # First line should not be shifted
+      text.each_line do |line|
+        @output << %Q{<tspan x="#{x}" dy="#{dy * font_size}#{font_units}">}
+        dy = 1 # Next lines should be shifted
+        @output << line.rstrip
+        @output << "</tspan>"
+      end
+      @output << "</text>"
+    else
+      text_without_inkscape_fix(x, y, text, style)
+    end
+  end
+
+  alias_method :text, :text_with_inkscape_fix
+
 end
+
 
 module Tango
 
@@ -186,6 +227,19 @@ module Tango
     # Define the units for this scope.
     # :d, :h, :m, :s, :ms, :us, :ns, :ps, :fs
     attr_helper :units, :us
+
+    # This fixes a problem when Adobe Illustrator tries to interpret lines
+    # that have markers applied, which otherwise causes measurement lines
+    # to disappear:
+    attr_helper :measurement_ai_fix, false
+
+    def inkscape_text_fix(set = nil)
+      if set.nil?
+        $use_inkscape_text_fix
+      else
+        $use_inkscape_text_fix = set
+      end
+    end
 
 
     def initialize(&block)
@@ -726,10 +780,12 @@ module Tango
         scope = self
         style = nil
         measures = @mezdata
+        ai = measurement_ai_fix
         sp = point_size
         # TODO: Default width and height should be based on extents of the data.
         svg = Rasem::SVGImage.new(options[:width] || width, options[:height] || height) do
-          svg.add_defs
+          # Rasem::SVGImage#add_defs: Add a <defs> block that describes arrow markers, etc:
+          add_defs
           point_streams = [*points.map{|c| c[:main]}, guides, *points.map{|c| c[:sub]}]
           point_streams.each_with_index do |point_stream, index|
             group do
@@ -792,10 +848,14 @@ module Tango
                   t = scope.scale_vertex( [mez[x], y-hh] )
                   b = scope.scale_vertex( [mez[x], y+hh] )
                   horiz << scope.scale_vertex( [mez[x], y] )
-                  line(*(t+b), style.merge( stroke_width: 1.0 ))
+                  #line(*(t+b), style.merge( stroke_width: 1.0 ))
                 end
                 # Now render the joining line:
-                line(*(horiz.flatten), style)
+                markers = { 'marker-start' => 'url(#start-arrow-marker)', 'marker-end' => 'url(#end-arrow-marker)' }
+                ss = style.merge(markers)
+                line(*(horiz.flatten), ss)
+                # Repeat the line WITHOUT markers for Adobe Illustrator's benefit:
+                line(*(horiz.flatten), style) if ai
                 # ...and the label(s):
                 align_set = (mez[:align] == :all) ? %w(left center right) : mez[:align]
                 [*align_set].each do |align|

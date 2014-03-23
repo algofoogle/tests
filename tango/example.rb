@@ -3,6 +3,8 @@
 require File.join(__FILE__, '..', 'lib/tango')
 
 t = Tango::Scope.new do
+  measurement_ai_fix true # Fix for Adobe Illustrator handling of SVG files.
+  inkscape_text_fix true # Fix for Inkscape, where it doesn't support '1em' units for multi-line text.
   units :us
   lead_in 5
   risefall 0.2
