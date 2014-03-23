@@ -172,6 +172,7 @@ module Tango
       @samples = Samples.new
       @ruler = {}
       @measurements = {}
+      @partial_measurements = {}
       @zooms = []
       instance_eval(&block)
     end
@@ -203,6 +204,14 @@ module Tango
         range.first.downto(range.last).map{|e| UNIT_MAP[e][1]}[0..-2].each { |m| v *= m }
       end
       v
+    end
+
+    def debug(msg)
+      puts "DEBUG: #{msg}"
+    end
+
+    def notimp(msg)
+      puts "NOT IMPLEMENTED: #{msg}"
     end
 
     def units_string(my_units = nil)
@@ -258,11 +267,16 @@ module Tango
 
     # Mark the current time with a label:
     def label(name)
-      @labels << Label.new( [now, name] )
+      @labels << Label.new( [now, name, nil] )
     end
 
-    def mark
-      @labels << Label.new( [now, nil] )
+    def mark(tag = nil)
+      found = @labels.find {|m| m[0] == now || (tag && (m[2] == tag))}
+      if found
+        debug "Rejecting repeated mark " + ((tag && (found[2] == tag)) ? "with tag #{tag.inspect}" : "at #{now}")
+        return nil
+      end
+      @labels << Label.new( [now, nil, tag] )
     end
 
     # Define a block that repeats.
@@ -398,6 +412,32 @@ module Tango
       end
     end
 
+    def start_measure(*args)
+      options = (Hash === args.last) ? args.pop : {}
+      name = args.first
+      # Reject this if we already have a measure of that name;
+      # OR if it's not selected;
+      # OR if a partial measurement is already started with that name:
+      return nil if @measurements[name] || (options.has_key?(:select) && !options[:select]) || @partial_measurements[name]
+      @partial_measurements[name] = {
+          begin: @now,
+          y: (options[:y] || (channels.count-0.5)),
+          align: (options[:align] || :left),
+          units: (options[:units] || units)
+      }
+    end
+
+    def end_measure(*args)
+      options = (Hash === args.last) ? args.pop : {}
+      name = args.first
+      # Reject this if we don't already have a partial measurement of that name;
+      # OR if it's not selected:
+      return nil if !@partial_measurements[name] || (options.has_key?(:select) && !options[:select])
+      new_measurement = @partial_measurements.delete(name)
+      new_measurement[:end] = @now
+      @measurements[name] = new_measurement
+    end
+
     def zoom(name, options = {}, &block)
       unless @zooms.include?(name)
         zoom_head = @now - (options[:pad_in] || options[:pad] || 0)
@@ -405,7 +445,7 @@ module Tango
         zoom_tail = @now + (options[:pad_out] || options[:pad] || 0)
         @zooms << name
         # TODO: RENDER the zoom. Need to add support for "scale"; i.e. how wide should the zoom window be?
-        puts "WARNING: zoom rendering not yet implemented; zoom(#{name}) covers #{(zoom_head..zoom_tail).inspect}"
+        notimp "Zoom rendering not yet implemented; zoom(#{name}) covers #{(zoom_head..zoom_tail).inspect}"
       else
         block.call
       end

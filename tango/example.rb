@@ -80,6 +80,7 @@ t = Tango::Scope.new do
       sample 0, STROBE: true
     end
     measure('STROBE asserted', y: -0.5, align: :all, units: :ms) do
+      y = 0.5
       {
         CLK: 5,
         DATA: 6,
@@ -87,12 +88,20 @@ t = Tango::Scope.new do
       }.each do |ch, sam|
         untimed do
           repeat(3..35, 'test', samples: sam) do |num, pct, time|
+            mark :start_timediv
+            start_measure('Time-div test', y: -1.0, align: :center)
+            end_measure("#{ch}-cycle")
+            start_measure("#{ch}-cycle", y: y, align: :right)
             #mark
             sample 0..1, ch => false
             sample 0, ch => true
           end
+          # Pad out to the end of the window:
           sample 0, ch => true
+          mark :end_timediv
+          end_measure('Time-div test')
         end
+        y += 1
       end
       # Keep it asserted for 5.68ms, then raise it again:
       sample 5680, STROBE: false
