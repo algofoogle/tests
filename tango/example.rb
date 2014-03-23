@@ -13,9 +13,10 @@ t = Tango::Scope.new do
   ruler step: 1, major: 5, decimals: 0
   #point_size 1.5
   channel :CLK, initial: false, color: '#369'
-  channel :DATA, initial: true, font_size: 9, risefall: 0.5
+  channel :DATA, initial: true, risefall: 0.5, font_size: 9, text_nudge: [1.5,0.3]
   channel :LATCH, initial: false, negative: true
   channel :STROBE, initial: false, negative: true
+  mark
   repeat(:n, 'lines', period: 14400) do |line|
     measure('line active time') do
       # CLK goes high for 9us:

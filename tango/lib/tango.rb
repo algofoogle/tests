@@ -136,16 +136,38 @@ module Tango
       EOH
     end
 
+    # Size of point markers (false => off):
     attr_helper :point_size, false
 
+    # Default rise/fall time (if not overridden by channel):
+    attr_helper :risefall, 0.0
+
+    # Amount of time to render before t=0.0
+    attr_helper :lead_in, 0.0
+
+    # Nominal 0-to-peak amplitude of a rendered channel.
+    attr_helper :channel_height, 1
+
+    # Spacing between channel baselines:
+    attr_helper :channel_pitch, 3
+
+    # Vertical offset for the first channel.    
+    attr_helper :channel_offset, 5
+
+    # How much to multiply time (i.e. pixels-per-unit):
+    attr_helper :time_scale, 4
+
+    # Number of pixels to indent waveforms, to make space for labels:
+    attr_helper :time_offset, 60
+
+
+
     def initialize(&block)
-      @lead_in = 0.0
       @now = 0.0
       units(:us)
       @channels = Channels.new
       @labels = Labels.new
       @samples = Samples.new
-      @risefall = 0.0
       @ruler = {}
       @measurements = []
       @zooms = []
@@ -169,10 +191,6 @@ module Tango
       new_channel = Channel[options.merge(:name => name)]
       new_channel[:risefall] ||= @risefall
       @channels << new_channel
-    end
-
-    def risefall(rate)
-      @risefall = rate
     end
 
     # Record a sample.
@@ -223,7 +241,13 @@ module Tango
     end
 
     # Define a block that repeats.
-    def repeat(range, name, options={}, &block)
+    def repeat(range, *args, &block)
+      if Hash === args.last
+        options = args.pop
+      else
+        options = {}
+      end
+      name = args.empty? ? nil : args.first
       base_time = now
       if Range === range
         start = (@now += range.first)
@@ -289,21 +313,6 @@ module Tango
       @guidelines = state
     end
 
-    # Nominal peak-to-peak amplitude of a rendered channel.
-    def channel_height
-      1
-    end
-
-    # Spacing between channel baselines.
-    def channel_pitch
-      3
-    end
-
-    # Vertical offset for the first channel.
-    def channel_offset
-      5
-    end
-
     def untimed
       time = @now
       yield
@@ -328,30 +337,19 @@ module Tango
       time * time_scale + time_offset
     end
 
-    def time_scale(set = nil)
-      if set
-        @time_scale = set
-      else
-        @time_scale ||= 4
-      end
-    end
-
-    def time_offset
-      60
-    end
-
     def xy(time, value, channel_index)
       if value == true || Peak == value
-        y = -1
+        y = 1
       elsif value == false || Trough == value
-        y = 1
-      elsif Float === value
-        y = -value
-      elsif value == Tristate
         y = 0
+      elsif Float === value || Fixnum === value
+        y = value.to_f
+      elsif value == Tristate
+        y = 0.5
       else # Arbitrary value:
-        y = 1
+        y = 0
       end
+      y = -y
       [scaled_time(time), baseline_for_channel(channel_index) + y*channel_height]
     end
 
@@ -476,15 +474,15 @@ module Tango
               end # was_arb
               if changed
                 # Do the text:
-                font_size = ch[:font_size] || '10px'
-                font_size = font_size.to_s + 'px' unless String === font_size
-                text_point = xy(time, -0.15, ci)
-                text_point[0] += 1
+                fs = ch[:font_size] || 10
+                nudge = ch[:text_nudge] || [1,0]
+                text_point = xy(time, nudge[1], ci)
+                text_point[0] += nudge[0]
                 points[ci][:text] << [
                   text_point,
                   value.to_s,
                   'font-family' => 'helvetica',
-                  'font-size' => font_size,
+                  'font-size' => "#{fs}px",
                 ]
               end # changed
             else # NOT arbitrary...
@@ -578,7 +576,8 @@ module Tango
       @ruler[:enabled] = args.empty? ? true : args.first unless @ruler.has_key?(:enabled)
     end
 
-    def rasem_scale_vertex(vertex, options = {})
+    # Transform a point from "channel units" to SVG canvas pixel units:
+    def scale_vertex(vertex, options = {})
       offset = options[:offset] || [0,0]
       [(vertex[0]+offset[0])*14/9, (vertex[1]+offset[1])*20+5]
     end
@@ -638,12 +637,12 @@ module Tango
                 end
                 path = flat_path
                 # Render the line:
-                polyline(*(path.map{|v| scope.rasem_scale_vertex(v)}), style)
+                polyline(*(path.map{|v| scope.scale_vertex(v)}), style)
                 if sp
                   # Render the points of the line:
                   group do
                     path.each do |pt|
-                      circle(*(scope.rasem_scale_vertex(pt)), sp, style.merge(:fill => style[:stroke]))
+                      circle(*(scope.scale_vertex(pt)), sp, style.merge(:fill => style[:stroke]))
                     end # points loop.
                   end # points sub-group.
                 end # render points?
@@ -654,7 +653,7 @@ module Tango
           points.map{|c| c[:text]}.each do |text_group|
             group do
               text_group.each do |item|
-                text_info = scope.rasem_scale_vertex(item[0]) + item[1..-1]
+                text_info = scope.scale_vertex(item[0]) + item[1..-1]
                 text(*text_info)
               end
             end
