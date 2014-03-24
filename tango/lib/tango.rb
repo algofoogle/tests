@@ -2,7 +2,7 @@ require 'rasem'
 
 # Monkey-patch Rasem::SVGImage so we can add a <defs> block:
 class Rasem::SVGImage
-  def add_defs
+  def add_defs(measure_color = 'magenta')
     # Start a <defs> block:
     @output << <<-EOH
       <defs>
@@ -14,8 +14,8 @@ class Rasem::SVGImage
           markerWidth="12" markerHeight="40"
           orient="auto"
         >
-          <path d="M5,3 L5,13 L1,8 L5,3" fill="magenta" />
-          <rect x="0" y="0" width="1" height="16" fill="magenta" />
+          <path d="M5,3 L5,13 L1,8 L5,3" fill="#{measure_color}" />
+          <rect x="0" y="0" width="1" height="16" fill="#{measure_color}" />
         </marker>
         <marker
           id="end-arrow-marker"
@@ -25,8 +25,8 @@ class Rasem::SVGImage
           markerWidth="12" markerHeight="40"
           orient="auto"
         >
-          <path d="M0,3 L0,13 L4,8 L0,3" fill="magenta" />
-          <rect x="4" y="0" width="1" height="16" fill="magenta" />
+          <path d="M0,3 L0,13 L4,8 L0,3" fill="#{measure_color}" />
+          <rect x="4" y="0" width="1" height="16" fill="#{measure_color}" />
         </marker>
       </defs>
     EOH
@@ -228,6 +228,9 @@ module Tango
     # :d, :h, :m, :s, :ms, :us, :ns, :ps, :fs
     attr_helper :units, :us
 
+    # When rendering labels, do we want to see the time on them?
+    attr_helper :show_label_times, true
+
     # This fixes a problem when Adobe Illustrator tries to interpret lines
     # that have markers applied, which otherwise causes measurement lines
     # to disappear:
@@ -251,9 +254,18 @@ module Tango
       @measurements = {}
       @partial_measurements = {}
       @zooms = []
+      @styles = {
+        label_lines: { stroke: 'cyan', stroke_width: 0.40 },
+        ruler_lines: { stroke: 'gray', stroke_width: 0.25 },
+        measures: { stroke: 'magenta', stroke_width: 0.40 },
+        waveform_base: { stroke_width: 0.7 }
+      }
       instance_eval(&block)
     end
 
+    def style(set)
+      @styles.merge!(set)
+    end
 
     UNIT_MAP = [
       [:fs, 1000.0],
@@ -344,16 +356,36 @@ module Tango
 
     # Mark the current time with a label:
     def label(name)
-      @labels << Label.new( [now, name, nil] )
+      @labels << Label.new( [now, name, nil, {}] )
     end
 
-    def mark(tag = nil)
-      found = @labels.find {|m| m[0] == now || (tag && (m[2] == tag))}
-      if found
-        debug "Rejecting repeated mark " + ((tag && (found[2] == tag)) ? "with tag #{tag.inspect}" : "at #{now}")
-        return nil
+    def mark(tag = nil, options = {})
+      if options[:hide]
+        # NOTE: Hidden marks don't get "repeat rejection" because they're needed for
+        # time tracking instead of rendering:
+        found = @labels.find { |m| tag && (m[2] == tag) }
+      else
+        found = @labels.find { |m| !m[3][:hide] && (m[0] == now || (tag && (m[2] == tag))) }
       end
-      @labels << Label.new( [now, nil, tag] )
+      if found
+        if options[:hide]
+          # Hidden marks get overridden:
+          found[0] = now
+          found[3] = options
+          return found
+        else
+          debug "Rejecting repeated mark " + ((tag && (found[2] == tag)) ? "with tag #{tag.inspect}" : "at #{now}")
+          return nil
+        end
+      end
+      @labels << Label.new( [now, nil, tag, options] )
+    end
+
+    def mark_seek(tag, time = 0)
+      # First, look up the given mark tag:
+      found = @labels.find {|m| (tag && (m[2] == tag))}
+      raise RuntimeError, "Cannot find a mark with tag #{tag.inspect}" unless found
+      seek(found[0] + time)
     end
 
     # Define a block that repeats.
@@ -482,7 +514,8 @@ module Tango
           end: @now,
           y: (options[:y] || (channels.count-0.5)),
           align: (options[:align] || :left),
-          units: (options[:units] || units)
+          units: (options[:units] || units),
+          override: options[:override]
         }
       else
         block.call
@@ -500,7 +533,8 @@ module Tango
           begin: @now,
           y: (options[:y] || (channels.count-0.5)),
           align: (options[:align] || :left),
-          units: (options[:units] || units)
+          units: (options[:units] || units),
+          override: options[:override]
       }
     end
 
@@ -555,6 +589,15 @@ module Tango
               'font-weight' => 'bold',
               'text-decoration' => ch[:negative] ? 'overline' : 'none',
             ]
+            if ch[:subtext]
+              points[ci][:text] << [
+                tp,
+                "\n#{ch[:subtext]}",
+                'font-family' => 'helvetica, arial, sans-serif',
+                'font-weight' => 'bold',
+                'font-size' => '10px',
+              ]
+            end
             points[ci][:main] << xy(0, value, ci)
             # Get rise-fall value for this channel:
             points[ci][:rf] = ch.risefall
@@ -662,13 +705,15 @@ module Tango
         last_sample = data.clone
       end
       # Convert labels into an extra "channel":
-      labels.each do |time, text|
+      labels.each do |time, text, tag, op|
+        next if op[:hide]
         line = guide(time)
         points[cc][:main] += line
         if text
+          label_text = show_label_times ? "#{'%0.3f' % (time-@lead_in)}#{units_string}\n#{text}" : text
           text_item = [
             [line[0][0], 2.5], # This places the label TEXT comfortably beneath the ruler.
-            "#{'%0.3f' % (time-@lead_in)}#{units_string}\n#{text}",
+            label_text,
             'font-family' => 'helvetica',
             'font-size' => '10px',
           ]
@@ -706,7 +751,7 @@ module Tango
         md = {
           y: start[1], height: channel_height,
           in: start[0], out: stop[0],
-          text: "#{name}:\n#{'%0.3f' % (size)}#{usuffix}",
+          text: "#{name}:\n" + ( mez[:override] || (('%0.3f' % size) + usuffix) ),
           align: mez[:align]
         }
         @mezdata[name] = md
@@ -742,14 +787,6 @@ module Tango
       [(vertex[0]+offset[0])*14/9, (vertex[1]+offset[1])*20+5]
     end
 
-    def waveform_style(set = nil)
-      if set
-        @waveform_style = waveform_style.merge(set)
-      else
-        @waveform_style || { stroke_width: 0.7 }
-      end
-    end
-
     def write_svg(filename, options = {})
       case (options[:engine] || 'rasem').to_s
       when 'rasem'
@@ -761,39 +798,36 @@ module Tango
           colour_set << (c[:color] || base_colors.first)
           base_colors.rotate!
         end
-        base_styles = colour_set.map{|c| waveform_style.merge( stroke: c ) }
+        base_styles = colour_set.map{|c| @styles[:waveform_base].merge( stroke: c ) }
         styles =
           base_styles + [
             # Style for marks/labels:
-            { stroke: 'cyan', stroke_width: 0.40 },
+            @styles[:label_lines],
             # Style for ruler:
-            { stroke: 'gray', stroke_width: 0.25 },
+            @styles[:ruler_lines],
           ] +
           base_styles + [
             # Style for SECONDARY marks/labels (should be unused!)
             { stroke: 'red', stroke_width: 2.0 },
             # Style for measurements:
-            { stroke: 'magenta', stroke_width: 0.40 },
+            @styles[:measures],
           ]
         points = @points
         guides = @guides
         scope = self
         style = nil
         measures = @mezdata
+        measures_color = @styles[:measures][:stroke]
         ai = measurement_ai_fix
         sp = point_size
         # TODO: Default width and height should be based on extents of the data.
         svg = Rasem::SVGImage.new(options[:width] || width, options[:height] || height) do
           # Rasem::SVGImage#add_defs: Add a <defs> block that describes arrow markers, etc:
-          add_defs
+          add_defs(measures_color)
           point_streams = [*points.map{|c| c[:main]}, guides, *points.map{|c| c[:sub]}]
           point_streams.each_with_index do |point_stream, index|
             group do
               style = styles.shift.merge(fill: 'none') unless styles.empty?
-              if style[:stroke] == 'magenta'
-                puts style.inspect
-                puts point_stream.inspect
-              end
               # Break the stream into arrays of points, splitting on nil:
               paths = point_stream.chunk{|p| p ? true : nil}.map{|_,v| v}
               paths.each do |path|
