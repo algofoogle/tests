@@ -2,6 +2,25 @@
 
 require File.join(__FILE__, '..', 'lib/tango')
 
+
+# NOTE: Possible strategies for collapsing time:
+# Terms:
+#   snip, cut, collapse, fold, compress
+# How to flag:
+#   * Wrap in a block -- allow nesting; no overlapping?
+#   * Mark fold points just like samples -- give control over which two to fold between.
+#   * AUTOMATICALLY flag using long runs and repeat() blocks -- with option to DISABLE.
+# How to render:
+#   * Make sure compressed time is tracked in an array, or at least just cumulatively.
+#   * Render timeline in chunks?
+#   * Render via each_sample with an option to enable/disable automatic folding,
+#     as each is hit -- block can return true/false to skip, as it desires.
+# Styling options for collapsed time?
+#
+# ALSO: need a way to stack measurements between channels, and render sufficient space
+# for them, automatically.
+
+
 t = Tango::Scope.new do
   measurement_ai_fix true # Fix for Adobe Illustrator handling of SVG files.
   inkscape_text_fix true # Fix for Inkscape, where it doesn't support '1em' units for multi-line text.
