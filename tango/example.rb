@@ -33,9 +33,12 @@ t = Tango::Scope.new do
   channel_offset 9
   #channel_pitch 4
   width 2800
-  height 400
+  height 500
   ruler step: 1, major: 5, decimals: 0
-  #point_size 1.5
+  # # DEBUG: Show actual sample points:
+  # point_size 1.5
+  # # DEBUG: DON'T remove unnecessary points :
+  # compact_points false
   channel :CLK, initial: false, color: '#369'
   channel :DATA, initial: true, risefall: 0.5, font_size: 9, text_nudge: [1.5,0.3]
   channel :LATCH, initial: false, negative: true
@@ -61,6 +64,11 @@ t = Tango::Scope.new do
                   measure('CLK half-cycle', y: 0.5) do
                     # CLK goes low at this point, for 1us, as this bit is stabilised:
                     sample 0..1, CLK: false, DATA: "b#{63-byte*8-bit}"
+                  end
+                  if byte==1 && bit==6
+                    fold :byte_loop_begin
+                  elsif byte==7 && bit==3
+                    fold :byte_loop_end
                   end
                   # CLK goes high for 1us; rising edge clocks the data in:
                   sample 0..1, CLK: true

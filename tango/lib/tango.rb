@@ -70,6 +70,28 @@ module Tango
   class Trough; end
   class Tristate; end
 
+  class Fold
+    def initialize(options = {})
+      @tag = options[:tag]
+    end
+    def self.[](tag)
+      self.new( tag: tag )
+    end
+  end
+
+  # This is a special channel "name" used for control data (e.g. folds):
+  class ControlChannel
+    class << self
+      def to_s
+        "(Internal ControlChannel)"
+      end
+      def to_sym
+        # SMELL: This is a kludge to shoe-horn ControlChannel support in:
+        self
+      end
+    end
+  end
+
   # Describes a channel:
   class Channel < Hash
     def risefall
@@ -81,8 +103,13 @@ module Tango
   class Channels < Array
     def [](name)
       if String === name || Symbol === name
+        # Find by :name
         self.find {|c| c[:name].to_s.strip == name.to_s.strip}
+      elsif name == ControlChannel
+        # Find THE ControlChannel:
+        self.find {|c| c[:name] == name}
       else
+        # Find by Array index:
         super
       end
     end
@@ -236,6 +263,10 @@ module Tango
     # to disappear:
     attr_helper :measurement_ai_fix, false
 
+    # By default, compact points which don't actually add any value
+    # to the waveform, to produce a more efficient (and cleaner) output file:
+    attr_helper :compact_points, true
+
     def inkscape_text_fix(set = nil)
       if set.nil?
         $use_inkscape_text_fix
@@ -248,6 +279,8 @@ module Tango
     def initialize(&block)
       @now = 0.0
       @channels = Channels.new
+      # Pre-define a special control channel:
+      channel ControlChannel, initial: nil
       @labels = Labels.new
       @samples = Samples.new
       @ruler = {}
@@ -258,7 +291,7 @@ module Tango
         label_lines: { stroke: 'cyan', stroke_width: 0.40 },
         ruler_lines: { stroke: 'gray', stroke_width: 0.25 },
         measures: { stroke: 'magenta', stroke_width: 0.40 },
-        waveform_base: { stroke_width: 0.7 }
+        waveform_base: { stroke_width: 0.85 }
       }
       instance_eval(&block)
     end
@@ -386,6 +419,11 @@ module Tango
       found = @labels.find {|m| (tag && (m[2] == tag))}
       raise RuntimeError, "Cannot find a mark with tag #{tag.inspect}" unless found
       seek(found[0] + time)
+    end
+
+    # Add a fold point to the ControlChannel:
+    def fold(tag, options = {})
+      sample 0, ControlChannel => Fold[tag]
     end
 
     # Define a block that repeats.
@@ -579,6 +617,12 @@ module Tango
           # Load points for initial state:
           data.each_with_index do |cd, ci|
             name,value = cd
+
+            if name == ControlChannel
+              # This is the ControlChannel; normal rendering doesn't apply.
+              next
+            end
+
             ch = channels[name]
             tp = xy(0, 0.25, ci)
             tp[0] -= time_offset
@@ -606,6 +650,16 @@ module Tango
           # Load subsequent points:
           data.each_with_index do |cd, ci|
             name,value = cd
+
+            if name == ControlChannel
+              # This is the ControlChannel; normal rendering doesn't apply.
+              if Fold === value
+                seek time
+                mark
+              end
+              next
+            end
+
             ch = channels[name]
             rf = points[ci][:rf] * time_scale / 2
 
@@ -792,7 +846,7 @@ module Tango
       when 'rasem'
         render_to_points
         cc = channels.count
-        base_colors = %w(black blue green red)
+        base_colors = %w(#f80 blue green red purple teal)
         colour_set = []
         channels.each do |c|
           colour_set << (c[:color] || base_colors.first)
@@ -812,10 +866,12 @@ module Tango
             # Style for measurements:
             @styles[:measures],
           ]
+        # SMELL: Instead of setting all these, just define s = self and reference that:
         points = @points
         guides = @guides
         scope = self
         style = nil
+        compact = compact_points
         measures = @mezdata
         measures_color = @styles[:measures][:stroke]
         ai = measurement_ai_fix
@@ -832,19 +888,21 @@ module Tango
               paths = point_stream.chunk{|p| p ? true : nil}.map{|_,v| v}
               paths.each do |path|
                 raise "Path needs at least 2 vertices, but it has: #{path.count}" unless path.count >= 2
-                # "Compact" the points by removing points which don't change the shape of the line.
-                # This also fixes glitches when using "repeat(..., samples: X)" inside an "untimed" block,
-                # though I should really get to the bottom of that (which seems to have something to do
-                # with incorrectly applying the rise/fall-time offset).
-                flat_path = []
-                path.each_with_index do |pt, index|
-                  if index == 0 || index == path.count-1
-                    flat_path << pt
-                  else
-                    flat_path << pt unless flat_path.last[1] == pt[1] && pt[1] == path[index+1][1]
+                if compact
+                  # "Compact" the points by removing points which don't change the shape of the line.
+                  # This also fixes glitches when using "repeat(..., samples: X)" inside an "untimed" block,
+                  # though I should really get to the bottom of that (which seems to have something to do
+                  # with incorrectly applying the rise/fall-time offset).
+                  flat_path = []
+                  path.each_with_index do |pt, index|
+                    if index == 0 || index == path.count-1
+                      flat_path << pt
+                    else
+                      flat_path << pt unless flat_path.last[1] == pt[1] && pt[1] == path[index+1][1]
+                    end
                   end
+                  path = flat_path
                 end
-                path = flat_path
                 # Render the line:
                 polyline(*(path.map{|v| scope.scale_vertex(v)}), style)
                 if sp
