@@ -8,7 +8,7 @@ def defaults
   units :us
   lead_in 5
   risefall 0.2
-  time_scale 6.5
+  time_scale 5.5
   channel_offset 9
   width 2800
   height 400
@@ -20,12 +20,13 @@ def defaults
   )
   #ruler step: 1, major: 5, decimals: 0
   channel :CLK, initial: false, color: '#f80', subtext: '(Pin 3)'
-  channel :DATA, initial: true, color: '#00f', subtext: '(Pin 2)', risefall: 0.5, font_size: 9, text_nudge: [3,0.3]
+  channel :DATA, initial: true, color: '#00f', subtext: '(Pin 2)', risefall: 0.5, font_size: 9, text_nudge: [2,0.3]
 end
 
 t = Tango::Scope.new do
   defaults
-  repeat(2, 'Main Cycle', period: 220) do |line|
+  repeat(2, 'Main Cycle', period: 300) do |line|
+    mark :cycle_start, hide: true
     label("START CYCLE #{line+1}")
     end_measure('Main Cycle')
     start_measure('Main Cycle', y: -1.5, align: :all, override: '14.4ms')
@@ -42,6 +43,10 @@ t = Tango::Scope.new do
             if bit==7 && byte==7
               start_measure('CLK "back porch"', y: -0.5)
               mark :loop_end, hide: true
+            elsif bit==2 && byte==1
+              fold :bit_loop_begin
+            elsif bit==6 && byte==6
+              fold :bit_loop_end
             end
             sample 0..1, CLK: true
           end
@@ -55,11 +60,15 @@ t = Tango::Scope.new do
       mark_seek :loop_end, 11.25
       sample 0, CLK: false
       end_measure('CLK "back porch"')
-    end
+    end # Measure: Total active time.
+    step 3
+    fold :bit_loop_begin
+    mark_seek :cycle_start, 297
+    fold :bit_loop_end
   end
 end
 
-t.write_svg('pt1010-CLK-DATA.svg')
+t.write_svg('pt1010-CLK-DATA.svg', fold: (:bit_loop_begin..:bit_loop_end))
 
 
 

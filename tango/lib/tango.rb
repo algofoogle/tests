@@ -684,11 +684,9 @@ module Tango
               # We've hit the ending fold, so resume normal rendering now.
               # Define the fold 'band' that needs to be rendered:
               tl = xy(folding-folded_time - 1.0, 0, -1)
-              br = xy(folding-folded_time + 2.0, 0, cc)
-              @folded_points << [
-                tl,
-                [br[0]-tl[0], br[1]-tl[1]]
-              ]
+              tl[1] = 1 * channel_height
+              br = xy(folding-folded_time + 2.0, 0, cc-1)
+              @folded_points << [tl, br]
               # Record how much time was folded.
               @folded << (folding..time)
               folding = nil
@@ -1046,12 +1044,15 @@ module Tango
           # Render fold bands:
           group do
             folded.each do |fold|
-              #rectangle(*(fold.flatten))
+              tl = scope.scale_vertex(fold[0])
+              br = scope.scale_vertex(fold[1])
               rectangle(
-                *scope.scale_vertex(fold[0]),
-                *scope.scale_vertex(fold[1]),
-                stroke: '#999', stroke_width: 4, fill: 'white'
+                *tl, br[0]-tl[0], br[1]-tl[1],
+                stroke: 'none', fill: 'white'
               )
+              ls = { stroke: '#aaa', stroke_width: 4 }
+              line(*tl, tl[0], br[1], ls)
+              line(br[0], tl[1], *br, ls)
             end
           end
         end # svg
