@@ -77,6 +77,9 @@ module Tango
     def self.[](tag)
       self.new( tag: tag )
     end
+    def tag
+      @tag
+    end
   end
 
   # This is a special channel "name" used for control data (e.g. folds):
@@ -174,11 +177,14 @@ module Tango
           # Apply negative logic:
           v = !v if true == v || false == v
         end
-        state[c[:name]] = v
+        state[c[:name]] = v unless c[:name] == ControlChannel
       end
       block.call(:initial, state)
       # Now go thru each sample in order and send updated state:
       keys.sort.each do |time|
+        # We remove the PRIOR ControlChannel value, and let it be replaced only if it changed
+        # (since the ControlChannel is not considered to be stateful):
+        state.delete(ControlChannel)
         # Update state, applying negative logic where required:
         self[time].each do |c, v|
           if channels[c][:negative]
@@ -612,6 +618,7 @@ module Tango
       # NOTE: each_sample will give us the time of the sample, and the values for
       # ALL channels at that sample time:
       last_sample = nil
+      wait_for_fold = nil
       each_sample do |time, data|
         if :initial == time
           # Load points for initial state:
@@ -647,6 +654,21 @@ module Tango
             points[ci][:rf] = ch.risefall
           end
         else
+          control = data[ControlChannel]
+          if Fold === control
+            puts control.inspect
+            if control.tag == wait_for_fold
+              # Clear old Fold wait:
+              wait_for_fold = nil
+            else
+              # Set new Fold wait:
+              wait_for_fold = :byte_loop_end #control.tag
+            end
+          end
+
+          # Don't do anything, so long as we're waiting for a fold.
+          next if wait_for_fold
+
           # Load subsequent points:
           data.each_with_index do |cd, ci|
             name,value = cd

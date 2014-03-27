@@ -65,9 +65,9 @@ t = Tango::Scope.new do
                     # CLK goes low at this point, for 1us, as this bit is stabilised:
                     sample 0..1, CLK: false, DATA: "b#{63-byte*8-bit}"
                   end
-                  if byte==1 && bit==6
+                  if byte==1 && bit==4
                     fold :byte_loop_begin
-                  elsif byte==7 && bit==3
+                  elsif byte==6 && bit==4
                     fold :byte_loop_end
                   end
                   # CLK goes high for 1us; rising edge clocks the data in:
