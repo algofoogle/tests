@@ -140,4 +140,4 @@ t = Tango::Scope.new do
 end
 
 #t.write_csv('example.csv')
-t.write_svg('example.svg')
+t.write_svg('example.svg', fold: (:byte_loop_begin..:byte_loop_end))

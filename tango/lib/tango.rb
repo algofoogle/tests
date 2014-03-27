@@ -299,7 +299,15 @@ module Tango
         measures: { stroke: 'magenta', stroke_width: 0.40 },
         waveform_base: { stroke_width: 0.85 }
       }
+      @folded = []
+      @folded_points = []
       instance_eval(&block)
+    end
+
+    # Return the total time that has been folded out (so far)
+    # in the rendering process:
+    def folded_time
+      @folded.inject(0.0) {|n,e| n+e.last.to_f-e.first.to_f} - (2.0 * @folded.count)
     end
 
     def style(set)
@@ -607,7 +615,8 @@ module Tango
     end
 
 
-    def render_to_points
+    def render_to_points(options = {})
+      fold = options[:fold] || (nil..nil)
       # Build a structure that will hold all the point data we need to render, per channel:
       cc = @channels.count
       # NOTE: We make cc+1 point streams because the extra one is for misc. lines/text:
@@ -618,7 +627,7 @@ module Tango
       # NOTE: each_sample will give us the time of the sample, and the values for
       # ALL channels at that sample time:
       last_sample = nil
-      wait_for_fold = nil
+      folding = false
       each_sample do |time, data|
         if :initial == time
           # Load points for initial state:
@@ -655,32 +664,52 @@ module Tango
           end
         else
           control = data[ControlChannel]
-          if Fold === control
-            puts control.inspect
-            if control.tag == wait_for_fold
-              # Clear old Fold wait:
-              wait_for_fold = nil
+          case control
+          when nil
+            # No control event.
+          when Fold
+            # The control channel has a Fold at this point.
+            # Is this the fold we're waiting for?
+            if control.tag == fold.first
+              # Start folding at this point.
+              folding = time
+              # Cut all the channels here:
+              data.each_with_index do |cd, ci|
+                name,value = cd
+                next if name == ControlChannel
+                points[ci][:main] << nil
+                points[ci][:sub] << nil
+              end
+            elsif control.tag == fold.last
+              # We've hit the ending fold, so resume normal rendering now.
+              # Define the fold 'band' that needs to be rendered:
+              tl = xy(folding-folded_time - 1.0, 0, -1)
+              br = xy(folding-folded_time + 2.0, 0, cc)
+              @folded_points << [
+                tl,
+                [br[0]-tl[0], br[1]-tl[1]]
+              ]
+              # Record how much time was folded.
+              @folded << (folding..time)
+              folding = nil
             else
-              # Set new Fold wait:
-              wait_for_fold = :byte_loop_end #control.tag
+              # Don't care about this fold.
             end
+          else
+            raise RuntimeError, "Unknown control channel event: #{control.inspect}"
           end
+            
+          # Don't do anything, so long as we're waiting for a fold:
+          next if folding
 
-          # Don't do anything, so long as we're waiting for a fold.
-          next if wait_for_fold
+          time -= folded_time
 
           # Load subsequent points:
           data.each_with_index do |cd, ci|
             name,value = cd
 
-            if name == ControlChannel
-              # This is the ControlChannel; normal rendering doesn't apply.
-              if Fold === value
-                seek time
-                mark
-              end
-              next
-            end
+            # Don't render the ControlChannel at all:
+            next if name == ControlChannel
 
             ch = channels[name]
             rf = points[ci][:rf] * time_scale / 2
@@ -702,8 +731,19 @@ module Tango
                 # Previous point was arbitrary too... is it maybe unchanged?
                 if changed
                   # OK, we've got a change, so break the lines and reset:
-                  new_main = [nil, points[ci][:sub].last.clone]
-                  new_sub = [nil, points[ci][:main].last.clone]
+                  last_main = points[ci][:main].last
+                  last_sub = points[ci][:sub].last
+                  if last_sub.nil?
+                    # This must be a fold's cut point.
+                    # SMELL: This is completely NOT the right way to do this!
+                    last_sub = points[ci][:sub][-2]
+                  end
+                  if last_main.nil?
+                    # SMELL: As above.
+                    last_main = points[ci][:main][-2]
+                  end
+                  new_main = [nil, last_sub.clone]
+                  new_sub = [nil, last_main.clone]
                   points[ci][:main] += new_main
                   points[ci][:sub] += new_sub
                   # Gap points:
@@ -752,6 +792,12 @@ module Tango
             else # NOT arbitrary...
               # This is NOT an arbitrary value...
               last_point = points[ci][:main].last
+              if last_point.nil?
+                # This must be a cut for a fold.
+                # SMELL: Later this should actually be calculated as its true value AT
+                # the point of the closing fold.
+                last_point = points[ci][:main][-2]
+              end
               # Create the point for this sample:
               sample_point = xy(time, value, ci)
               # Create the point that bridges the previous sample with this one:
@@ -866,7 +912,7 @@ module Tango
     def write_svg(filename, options = {})
       case (options[:engine] || 'rasem').to_s
       when 'rasem'
-        render_to_points
+        render_to_points(options)
         cc = channels.count
         base_colors = %w(#f80 blue green red purple teal)
         colour_set = []
@@ -898,6 +944,7 @@ module Tango
         measures_color = @styles[:measures][:stroke]
         ai = measurement_ai_fix
         sp = point_size
+        folded = @folded_points
         # TODO: Default width and height should be based on extents of the data.
         svg = Rasem::SVGImage.new(options[:width] || width, options[:height] || height) do
           # Rasem::SVGImage#add_defs: Add a <defs> block that describes arrow markers, etc:
@@ -994,6 +1041,17 @@ module Tango
                   )
                 end
               end
+            end
+          end
+          # Render fold bands:
+          group do
+            folded.each do |fold|
+              #rectangle(*(fold.flatten))
+              rectangle(
+                *scope.scale_vertex(fold[0]),
+                *scope.scale_vertex(fold[1]),
+                stroke: '#999', stroke_width: 4, fill: 'white'
+              )
             end
           end
         end # svg
