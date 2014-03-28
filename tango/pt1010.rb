@@ -13,15 +13,15 @@ def defaults
   time_fold_overlap 1.0
   time_offset 40
   channel_offset 9
-  width 2800
-  height 400
+  width 1050
+  height 280
   show_label_times false
   style(
     measures: { stroke: '#999', stroke_width: 0.4 },
     label_lines: { stroke: 'cyan', stroke_width: 0.5, stroke_dasharray: '5,5' },
-    waveform_base: { stroke_width: 1.2 },
+    waveform_base: { stroke_width: 1.5 },
   )
-  #ruler step: 1, major: 5, decimals: 0
+  ruler step: 1, major: 5, decimals: 0
   channel :CLK, initial: false, color: '#f80', subtext: '(Pin 3)'
   channel :DATA, initial: true, color: '#00f', subtext: '(Pin 2)', risefall: 0.5, font_size: 9, text_nudge: [2,0.3]
 end
@@ -30,10 +30,11 @@ t = Tango::Scope.new do
   defaults
   repeat(2, 'Main Cycle', period: 14400) do |line|
     mark :cycle_start, hide: true
-    label("START CYCLE #{line+1}")
+    label("START\nCYCLE ##{line+1}")
+    end_measure('Inactive time')
     end_measure('Main Cycle')
-    start_measure('Main Cycle', y: -1.5, align: :all, units: :ms) #override: '14.4ms')
-    measure('Total active time', y: -1.0, align: :all) do
+    start_measure('Main Cycle', y: -1.5, align: %w(left right), units: :ms)
+    measure('Total active time', y: -1.0, align: %w(left right)) do
       measure('CLK "front porch"', y: -0.5) do
         sample 0..9, CLK: true
       end
@@ -64,9 +65,10 @@ t = Tango::Scope.new do
       sample 0, CLK: false
       end_measure('CLK "back porch"')
     end # Measure: Total active time.
-    step 3
+    start_measure('Inactive time', y: 0.5, align: :left, override: '~ 14.2ms')
+    step 10
     fold :bit_loop_begin
-    mark_seek :cycle_start, 14397 # Seek to 3us before the end of this cycle.
+    mark_seek :cycle_start, 14395 # Seek to 3us before the end of this cycle.
     fold :bit_loop_end
   end
 end

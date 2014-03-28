@@ -305,7 +305,7 @@ module Tango
         ruler_lines: { stroke: 'gray', stroke_width: 0.25 },
         measures: { stroke: 'magenta', stroke_width: 0.40 },
         waveform_base: { stroke_width: 0.85 },
-        fold_band: { stroke: 'none', fill: '#f6f6f6' },
+        fold_band: { stroke: 'none', fill: 'white' },
         fold_edge: { stroke: '#aaa', stroke_width: 4, stroke_dasharray: '0.1,7', stroke_linecap: 'round' },
       }
       @folded = []
@@ -315,10 +315,39 @@ module Tango
 
     # Return the total time that has been folded out (so far)
     # in the rendering process:
-    def folded_time
+    def total_time_folded
       # This sums all the folded time (which gets deducted from the horizontal scale),
       # but then reduces the amount of folded time by the width of the BAND (i.e. time_fold_width):
       @folded.inject(0.0) {|n,e| n+e.last.to_f-e.first.to_f} - (time_fold_width * @folded.count)
+    end
+
+    # Takes a time value and applies the current set of folds (i.e. @folded)
+    # to it, yielding a time value that has been offset.
+    def folded_time(t, options = {})
+      result = t
+      @folded.each do |range|
+        if t >= range.last
+          # This time goes THROUGH this range completely,
+          # so compress it, but compensate for the time_fold_width, too.
+          result -= (range.last-range.first)
+          result += time_fold_width
+        elsif range.cover?(t)
+          # If the caller doesn't want anything that lands in the
+          # fold, then discard this point. This is used (say) for
+          # discarding guides (markers & labels) that would otherwise
+          # be absorbed by the fold:
+          return nil if options[:discard_in_fold]
+          # This time lands in this range, so compress back to the
+          # start of this range:
+          result -= (t-range.first)
+          # ...and we're done:
+          break
+        else
+          # Looks like we occur before any folds:
+          break
+        end
+      end
+      result
     end
 
     def style(set)
@@ -545,7 +574,9 @@ module Tango
     end
 
     def tick(time, major = false)
-      t = scaled_time(time)
+      t = folded_time(time, discard_in_fold: true)
+      return nil unless t
+      t = scaled_time(t)
       [ [t,0], [t, major ? 1.5 : 0.5], nil]
     end
 
@@ -636,7 +667,7 @@ module Tango
       cc = @channels.count
       # NOTE: We make cc+1 point streams because the extra one is for misc. lines/text:
       points = (cc+1).times.map do |x|
-        Hash[*(%w(main sub text).inject([]) { |a,k| a+[k.to_sym, []]})]
+        Hash[*(%w(name main sub text).inject([]) { |a,k| a+[k.to_sym, []]})]
       end
       @guides = []
       # NOTE: each_sample will give us the time of the sample, and the values for
@@ -649,6 +680,7 @@ module Tango
           # Load points for initial state:
           data.each_with_index do |cd, ci|
             name,value = cd
+            points[ci][:name] = name # Just for debugging.
 
             if name == ControlChannel
               # This is the ControlChannel; normal rendering doesn't apply.
@@ -690,7 +722,7 @@ module Tango
             if control.tag == fold.first
               # Start folding at this point.
               folding = time
-              fold_onto = time - folded_time
+              fold_onto = time - total_time_folded
               # # Cut all the channels here:
               # data.each_with_index do |cd, ci|
               #   name,value = cd
@@ -701,9 +733,9 @@ module Tango
             elsif control.tag == fold.last
               # We've hit the ending fold, so resume normal rendering now.
               # Define the fold 'band' that needs to be rendered:
-              tl = xy(folding-folded_time - (time_fold_overlap/2.0), 0, -1)
-              tl[1] = 1 * channel_height
-              br = xy(folding-folded_time + (time_fold_overlap/2.0) + time_fold_width, 0, cc-1)
+              tl = xy(folding-total_time_folded - (time_fold_overlap/2.0), 0, -1)
+              tl[1] = @ruler[:enabled] ? 0 : (1 * channel_height)
+              br = xy(folding-total_time_folded + (time_fold_overlap/2.0) + time_fold_width, 0, cc-1)
               @folded_points << [tl, br]
               # Record how much time was folded.
               @folded << (folding..time)
@@ -720,7 +752,7 @@ module Tango
             time = fold_onto
           else
             # This just offsets our timeline to account for any (previously-folded) time:
-            time -= folded_time
+            time -= total_time_folded
           end
 
           # Load subsequent points:
@@ -845,10 +877,13 @@ module Tango
         end
         last_sample = data.clone
       end
+      # --- RENDER LABELS & MARKERS ---
       # Convert labels into an extra "channel":
       labels.each do |time, text, tag, op|
         next if op[:hide]
-        line = guide(time)
+        x = folded_time(time, discard_in_fold: true)
+        next unless x
+        line = guide(x)
         points[cc][:main] += line
         if text
           label_text = show_label_times ? "#{'%0.3f' % (time-@lead_in)}#{units_string}\n#{text}" : text
@@ -862,31 +897,36 @@ module Tango
         end
       end
       @points = points
+      # --- RENDER THE RULER ---
       if @ruler[:enabled]
         x = @lead_in
         last = samples.latest
         major_counter = 0
         while (x <= last)
           major = ( 0 == major_counter % (@ruler[:major] || 5) )
-          t = tick(x, major)
-          @guides += t
           major_counter += 1
-          if major
-            points[cc][:text] << [
-              t[1],
-              "#{"%0.#{@ruler[:decimals] || 2}f" % (x-@lead_in)}#{units_string}",
-              'font-family' => 'helvetica',
-              'font-size' => '10px',
-            ]
+          t = tick(x, major)
+          if t
+            @guides += t
+            if major
+              points[cc][:text] << [
+                t[1],
+                "#{"%0.#{@ruler[:decimals] || 2}f" % (x-@lead_in)}#{units_string}",
+                'font-family' => 'helvetica',
+                'font-size' => '10px',
+              ]
+            end
           end
           x += @ruler[:step] || 1
         end
       end
-      # Render measurements:
+      # --- RENDER MEASUREMENTS ---
       @mezdata = {}
       @measurements.each do |name,mez|
-        start = xy(mez[:begin], 0.5, mez[:y])
-        stop = xy(mez[:end], 0.5, mez[:y])
+        mez_begin = mez[:begin]
+        mez_end = mez[:end]
+        start = xy(folded_time(mez_begin), 0.5, mez[:y])
+        stop = xy(folded_time(mez_end), 0.5, mez[:y])
         usuffix = units_string(mez[:units])
         size = scale_units(mez[:end]-mez[:begin], units, mez[:units])
         md = {
@@ -899,6 +939,7 @@ module Tango
       end
       true
     end
+
 
     def width(set = nil)
       if set
@@ -936,6 +977,7 @@ module Tango
         base_colors = %w(#f80 blue green red purple teal)
         colour_set = []
         channels.each do |c|
+          next if c[:name] == ControlChannel
           colour_set << (c[:color] || base_colors.first)
           base_colors.rotate!
         end
@@ -949,7 +991,7 @@ module Tango
           ] +
           base_styles + [
             # Style for SECONDARY marks/labels (should be unused!)
-            { stroke: 'red', stroke_width: 5.0 },
+            { stroke: '#cf3', stroke_width: 5.0 },
             # Style for measurements:
             styles[:measures],
           ]
@@ -969,7 +1011,11 @@ module Tango
         svg = Rasem::SVGImage.new(options[:width] || width, options[:height] || height) do
           # Rasem::SVGImage#add_defs: Add a <defs> block that describes arrow markers, etc:
           add_defs(measures_color)
-          point_streams = [*points.map{|c| c[:main]}, guides, *points.map{|c| c[:sub]}]
+          main_points = points.map{|c| c[:main]}
+          main_points.delete_at(s.channels.count-1)
+          sub_points = points.map{|c| c[:sub]}
+          sub_points.delete_at(s.channels.count-1)
+          point_streams = [ *main_points, guides, *sub_points ]
           point_streams.each_with_index do |point_stream, index|
             group do
               style = my_styles.shift.merge(fill: 'none') unless my_styles.empty?

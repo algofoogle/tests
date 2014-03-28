@@ -39,6 +39,7 @@ t = Tango::Scope.new do
   # point_size 1.5
   # # DEBUG: DON'T remove unnecessary points :
   # compact_points false
+  style( waveform_base: { stroke_width: 1.5 } )
   channel :CLK, initial: false, color: '#369'
   channel :DATA, initial: true, risefall: 0.5, font_size: 9, text_nudge: [1.5,0.3]
   channel :LATCH, initial: false, negative: true
