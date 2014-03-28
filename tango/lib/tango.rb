@@ -273,6 +273,13 @@ module Tango
     # to the waveform, to produce a more efficient (and cleaner) output file:
     attr_helper :compact_points, true
 
+    # The width of a time-fold band, in horizontal (time) units:
+    attr_helper :time_fold_width, 1.0
+
+    # Extra width to add to the time-fold band, that overlaps its non-folded
+    # edges. A value of "2.0" means it spills over an extra 1.0 units either side:
+    attr_helper :time_fold_overlap, 1.0
+
     def inkscape_text_fix(set = nil)
       if set.nil?
         $use_inkscape_text_fix
@@ -307,7 +314,9 @@ module Tango
     # Return the total time that has been folded out (so far)
     # in the rendering process:
     def folded_time
-      @folded.inject(0.0) {|n,e| n+e.last.to_f-e.first.to_f} - (2.0 * @folded.count)
+      # This sums all the folded time (which gets deducted from the horizontal scale),
+      # but then reduces the amount of folded time by the width of the BAND (i.e. time_fold_width):
+      @folded.inject(0.0) {|n,e| n+e.last.to_f-e.first.to_f} - (time_fold_width * @folded.count)
     end
 
     def style(set)
@@ -388,7 +397,7 @@ module Tango
 
     # step(Fixnum): Advance the timer.
     def step(time)
-      raise RuntimeError, %(Timer step must be >= 0, but #{time} was given!) unless time >= 0
+      warn %(Timer step must be >= 0, but #{time} was given!) unless time >= 0
       @now += time
     end
 
@@ -627,7 +636,8 @@ module Tango
       # NOTE: each_sample will give us the time of the sample, and the values for
       # ALL channels at that sample time:
       last_sample = nil
-      folding = false
+      folding = nil
+      fold_onto = nil
       each_sample do |time, data|
         if :initial == time
           # Load points for initial state:
@@ -663,6 +673,7 @@ module Tango
             points[ci][:rf] = ch.risefall
           end
         else
+          # OK, let's start analysing this sample...
           control = data[ControlChannel]
           case control
           when nil
@@ -673,19 +684,20 @@ module Tango
             if control.tag == fold.first
               # Start folding at this point.
               folding = time
-              # Cut all the channels here:
-              data.each_with_index do |cd, ci|
-                name,value = cd
-                next if name == ControlChannel
-                points[ci][:main] << nil
-                points[ci][:sub] << nil
-              end
+              fold_onto = time - folded_time
+              # # Cut all the channels here:
+              # data.each_with_index do |cd, ci|
+              #   name,value = cd
+              #   next if name == ControlChannel
+              #   points[ci][:main] << nil
+              #   points[ci][:sub] << nil
+              # end
             elsif control.tag == fold.last
               # We've hit the ending fold, so resume normal rendering now.
               # Define the fold 'band' that needs to be rendered:
-              tl = xy(folding-folded_time - 1.0, 0, -1)
+              tl = xy(folding-folded_time - (time_fold_overlap/2.0), 0, -1)
               tl[1] = 1 * channel_height
-              br = xy(folding-folded_time + 2.0, 0, cc-1)
+              br = xy(folding-folded_time + (time_fold_overlap/2.0) + time_fold_width, 0, cc-1)
               @folded_points << [tl, br]
               # Record how much time was folded.
               @folded << (folding..time)
@@ -697,10 +709,13 @@ module Tango
             raise RuntimeError, "Unknown control channel event: #{control.inspect}"
           end
             
-          # Don't do anything, so long as we're waiting for a fold:
-          next if folding
-
-          time -= folded_time
+          if folding
+            # This won't actually STOP rendering: It just crushes it all onto one horizontal point:
+            time = fold_onto
+          else
+            # This just offsets our timeline to account for any (previously-folded) time:
+            time -= folded_time
+          end
 
           # Load subsequent points:
           data.each_with_index do |cd, ci|

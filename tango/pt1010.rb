@@ -9,6 +9,8 @@ def defaults
   lead_in 5
   risefall 0.2
   time_scale 5.5
+  time_fold_width 2.0
+  time_fold_overlap 1.0
   channel_offset 9
   width 2800
   height 400
@@ -25,11 +27,11 @@ end
 
 t = Tango::Scope.new do
   defaults
-  repeat(2, 'Main Cycle', period: 300) do |line|
+  repeat(2, 'Main Cycle', period: 14400) do |line|
     mark :cycle_start, hide: true
     label("START CYCLE #{line+1}")
     end_measure('Main Cycle')
-    start_measure('Main Cycle', y: -1.5, align: :all, override: '14.4ms')
+    start_measure('Main Cycle', y: -1.5, align: :all, units: :ms) #override: '14.4ms')
     measure('Total active time', y: -1.0, align: :all) do
       measure('CLK "front porch"', y: -0.5) do
         sample 0..9, CLK: true
@@ -63,7 +65,7 @@ t = Tango::Scope.new do
     end # Measure: Total active time.
     step 3
     fold :bit_loop_begin
-    mark_seek :cycle_start, 297
+    mark_seek :cycle_start, 14397 # Seek to 3us before the end of this cycle.
     fold :bit_loop_end
   end
 end
