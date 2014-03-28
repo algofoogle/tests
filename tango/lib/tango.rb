@@ -304,7 +304,9 @@ module Tango
         label_lines: { stroke: 'cyan', stroke_width: 0.40 },
         ruler_lines: { stroke: 'gray', stroke_width: 0.25 },
         measures: { stroke: 'magenta', stroke_width: 0.40 },
-        waveform_base: { stroke_width: 0.85 }
+        waveform_base: { stroke_width: 0.85 },
+        fold_band: { stroke: 'none', fill: '#f6f6f6' },
+        fold_edge: { stroke: '#aaa', stroke_width: 4, stroke_dasharray: '0.1,7', stroke_linecap: 'round' },
       }
       @folded = []
       @folded_points = []
@@ -321,6 +323,10 @@ module Tango
 
     def style(set)
       @styles.merge!(set)
+    end
+
+    def styles
+      @styles
     end
 
     UNIT_MAP = [
@@ -933,28 +939,29 @@ module Tango
           colour_set << (c[:color] || base_colors.first)
           base_colors.rotate!
         end
-        base_styles = colour_set.map{|c| @styles[:waveform_base].merge( stroke: c ) }
-        styles =
+        base_styles = colour_set.map{|c| styles[:waveform_base].merge( stroke: c ) }
+        my_styles =
           base_styles + [
             # Style for marks/labels:
-            @styles[:label_lines],
+            styles[:label_lines],
             # Style for ruler:
-            @styles[:ruler_lines],
+            styles[:ruler_lines],
           ] +
           base_styles + [
             # Style for SECONDARY marks/labels (should be unused!)
-            { stroke: 'red', stroke_width: 2.0 },
+            { stroke: 'red', stroke_width: 5.0 },
             # Style for measurements:
-            @styles[:measures],
+            styles[:measures],
           ]
         # SMELL: Instead of setting all these, just define s = self and reference that:
+        s = self
         points = @points
         guides = @guides
         scope = self
         style = nil
         compact = compact_points
         measures = @mezdata
-        measures_color = @styles[:measures][:stroke]
+        measures_color = styles[:measures][:stroke]
         ai = measurement_ai_fix
         sp = point_size
         folded = @folded_points
@@ -965,7 +972,7 @@ module Tango
           point_streams = [*points.map{|c| c[:main]}, guides, *points.map{|c| c[:sub]}]
           point_streams.each_with_index do |point_stream, index|
             group do
-              style = styles.shift.merge(fill: 'none') unless styles.empty?
+              style = my_styles.shift.merge(fill: 'none') unless my_styles.empty?
               # Break the stream into arrays of points, splitting on nil:
               paths = point_stream.chunk{|p| p ? true : nil}.map{|_,v| v}
               paths.each do |path|
@@ -1010,7 +1017,7 @@ module Tango
           # TODO: Rendering for measures:
           # * For now, could just be a header/footer "H" bar (e.g.: |---- name: 23us ---- |);
           # * Later, add support for placing between nominated channels, and relating between channels.
-          style = styles.shift || { stroke: 'red', stroke_width: 2.0 }
+          style = my_styles.shift || { stroke: 'red', stroke_width: 2.0 }
           group do
             measures.each do |name, mez|
               group do
@@ -1063,9 +1070,9 @@ module Tango
               br = scope.scale_vertex(fold[1])
               rectangle(
                 *tl, br[0]-tl[0], br[1]-tl[1],
-                stroke: 'none', fill: 'white'
+                s.styles[:fold_band]
               )
-              ls = { stroke: '#aaa', stroke_width: 4 }
+              ls = s.styles[:fold_edge]
               line(*tl, tl[0], br[1], ls)
               line(br[0], tl[1], *br, ls)
             end

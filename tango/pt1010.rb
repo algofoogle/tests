@@ -11,6 +11,7 @@ def defaults
   time_scale 5.5
   time_fold_width 2.0
   time_fold_overlap 1.0
+  time_offset 40
   channel_offset 9
   width 2800
   height 400
