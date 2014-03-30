@@ -2,7 +2,9 @@ require 'rasem'
 
 # Monkey-patch Rasem::SVGImage so we can add a <defs> block:
 class Rasem::SVGImage
-  def add_defs(measure_color = 'magenta')
+  def add_defs(options = {})
+    measure_color = options[:measure_color] || 'magenta'
+    background_color = options[:background_color] || 'white'
     # Start a <defs> block:
     @output << <<-EOH
       <defs>
@@ -28,6 +30,12 @@ class Rasem::SVGImage
           <path d="M0,3 L0,13 L4,8 L0,3" fill="#{measure_color}" />
           <rect x="4" y="0" width="1" height="16" fill="#{measure_color}" />
         </marker>
+        <linearGradient id="fadeout" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" style="stop-color:#{background_color};stop-opacity:0" />
+          <stop offset="70%" style="stop-color:#{background_color};stop-opacity:0.9" />
+          <stop offset="90%" style="stop-color:#{background_color};stop-opacity:1" />
+          <stop offset="100%" style="stop-color:#{background_color};stop-opacity:1" />
+        </linearGradient>
       </defs>
     EOH
   end
@@ -217,7 +225,7 @@ module Tango
       if args.empty?
         reader_def = vn
       else
-        reader_def = "defined?(#{vn}) ? #{vn} : #{args.first}"
+        reader_def = "defined?(#{vn}) ? #{vn} : #{args.first.inspect}"
       end
       # Define the method that reads, and that implicitly writes, the var:
       self.class_eval <<-EOH
@@ -279,6 +287,18 @@ module Tango
     # Extra width to add to the time-fold band, that overlaps its non-folded
     # edges. A value of "2.0" means it spills over an extra 1.0 units either side:
     attr_helper :time_fold_overlap, 1.0
+
+    # What type of fold do we render? :band, :saw, :zip, :rip, :wave...?
+    attr_helper :fold_type, :band
+
+    # Background colour of the image:
+    attr_helper :background_color
+
+    # Width of the fade-out at the right-hand edge (nil for none):
+    attr_helper :fade_out
+
+    # Offset for the label of each channel's name:
+    attr_helper :channel_name_nudge
 
     def inkscape_text_fix(set = nil)
       if set.nil?
@@ -613,7 +633,8 @@ module Tango
           y: (options[:y] || (channels.count-0.5)),
           align: (options[:align] || :left),
           units: (options[:units] || units),
-          override: options[:override]
+          override: options[:override],
+          outer: options[:outer]
         }
       else
         block.call
@@ -632,7 +653,8 @@ module Tango
           y: (options[:y] || (channels.count-0.5)),
           align: (options[:align] || :left),
           units: (options[:units] || units),
-          override: options[:override]
+          override: options[:override],
+          outer: options[:outer]
       }
     end
 
@@ -690,12 +712,18 @@ module Tango
             ch = channels[name]
             tp = xy(0, 0.25, ci)
             tp[0] -= time_offset
+            cnn = channel_name_nudge
+            if channel_name_nudge
+              tp[0] += cnn[0]
+              tp[1] += cnn[1]
+            end
             points[ci][:text] << [
               tp,
               name.to_s,
               'font-family' => 'helvetica, arial, sans-serif',
               'font-weight' => 'bold',
               'text-decoration' => ch[:negative] ? 'overline' : 'none',
+              'font-size' => '16px'
             ]
             if ch[:subtext]
               points[ci][:text] << [
@@ -933,7 +961,8 @@ module Tango
           y: start[1], height: channel_height,
           in: start[0], out: stop[0],
           text: "#{name}:\n" + ( mez[:override] || (('%0.3f' % size) + usuffix) ),
-          align: mez[:align]
+          align: mez[:align],
+          outer: mez[:outer]
         }
         @mezdata[name] = md
       end
@@ -1008,9 +1037,15 @@ module Tango
         sp = point_size
         folded = @folded_points
         # TODO: Default width and height should be based on extents of the data.
-        svg = Rasem::SVGImage.new(options[:width] || width, options[:height] || height) do
+        image_width = options[:width] || width
+        image_height = options[:height] || height
+        svg = Rasem::SVGImage.new(image_width, image_height) do
           # Rasem::SVGImage#add_defs: Add a <defs> block that describes arrow markers, etc:
-          add_defs(measures_color)
+          add_defs(measure_color: measures_color, background_color: s.background_color)
+          # Render background:
+          if s.background_color
+            rectangle(0, 0, image_width, image_height, stroke: 'none', fill: s.background_color)
+          end
           main_points = points.map{|c| c[:main]}
           main_points.delete_at(s.channels.count-1)
           sub_points = points.map{|c| c[:sub]}
@@ -1078,23 +1113,35 @@ module Tango
                   #line(*(t+b), style.merge( stroke_width: 1.0 ))
                 end
                 # Now render the joining line:
-                markers = { 'marker-start' => 'url(#start-arrow-marker)', 'marker-end' => 'url(#end-arrow-marker)' }
+                outer = mez[:outer]
+                if outer
+                  markers = { 'marker-end' => 'url(#start-arrow-marker)', 'marker-start' => 'url(#end-arrow-marker)' }
+                else
+                  markers = { 'marker-start' => 'url(#start-arrow-marker)', 'marker-end' => 'url(#end-arrow-marker)' }
+                end
                 ss = style.merge(markers)
-                line(*(horiz.flatten), ss)
+                if outer
+                  ss_markers = ss.merge(stroke: 'none')
+                  ss_plain = nil
+                else
+                  ss_markers = ss
+                  ss_plain = style
+                end
+                line(*(horiz.flatten), ss_markers)
                 # Repeat the line WITHOUT markers for Adobe Illustrator's benefit:
-                line(*(horiz.flatten), style) if ai
+                line(*(horiz.flatten), ss_plain) if ai && ss_plain
                 # ...and the label(s):
                 align_set = (mez[:align] == :all) ? %w(left center right) : mez[:align]
                 [*align_set].each do |align|
                   case align.to_sym
                   when :left
-                    text_point = [ horiz[0][0]-2, horiz[0][1] ]
+                    text_point = [ horiz[0][0] - (outer ? 6 : 2), horiz[0][1] ]
                     anchor = 'end'
                   when :center, :mid, :middle
                     text_point = [ (horiz[0][0]+horiz[1][0])/2.0, horiz[0][1] ]
                     anchor = 'middle'
                   when :right
-                    text_point = [ horiz[1][0]+2, horiz[0][1] ]
+                    text_point = [ horiz[1][0] + (outer ? 6 : 2), horiz[0][1] ]
                     anchor = 'start'
                   else
                     raise RuntimeError, "Unknown measurement align: #{mez[:align].inspect}"
@@ -1119,9 +1166,51 @@ module Tango
                 s.styles[:fold_band]
               )
               ls = s.styles[:fold_edge]
-              line(*tl, tl[0], br[1], ls)
-              line(br[0], tl[1], *br, ls)
+              fti = s.fold_type
+              fti = { type: fti } unless Hash === fti
+              case fti[:type]
+              when :band
+                # Render lines either side of the band:
+                line(*tl, tl[0], br[1], ls)
+                line(br[0], tl[1], *br, ls)
+              when :saw, :saw2
+                # Render a zig-zag right in the middle of the band:
+                zp = []
+                y = 0
+                x = (br[0] - tl[0]) / 2.0
+                m = (tl[0] + br[0]) / 2.0
+                if fti[:teeth]
+                  y_step = image_height / fti[:teeth].to_f / 2.0
+                else
+                  y_step = 10.0
+                end
+                while y < (image_height+y_step)
+                  zp << [ m+x, y ]
+                  x = -x
+                  y += y_step
+                end
+                if :saw2 == fti[:type]
+                  # Render white underline first.
+                  ls2 = ls.merge(
+                    stroke: fti[:gap_color] || 'white',
+                    stroke_width: fti[:gap_width] || 10.0,
+                    stroke_linejoin: fti[:gap_corner] || 'round'
+                  )
+                  polyline(*zp, ls2)
+                end
+                polyline(*zp, ls)
+              else
+                raise RuntimeError, "Unknown fold_type: #{s.fold_type.inspect}"
+              end
             end
+          end
+          # Render fade-out:
+          w = s.fade_out
+          if w
+            rectangle(
+              image_width-w, 0, w, image_height,
+              stroke: 'none', fill: 'url(#fadeout)'
+            )
           end
         end # svg
         File.open(filename, 'w') do |file|
