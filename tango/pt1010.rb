@@ -2,39 +2,64 @@
 
 require File.join(__FILE__, '..', 'lib/tango')
 
-def defaults
+def common
   measurement_ai_fix true # Fix for Adobe Illustrator handling of SVG files.
   inkscape_text_fix true # Fix for Inkscape, where it doesn't support '1em' units for multi-line text.
   units :us
-  lead_in 5
+  lead_in 4
   risefall 0.2
   time_scale 5.5
-  time_fold_width 2.0
-  time_fold_overlap 1.0
-  time_offset 40
+  time_fold_width 1.0
+  time_fold_overlap 0.5
+  time_offset 30
   channel_offset 9
-  width 1050
+  fade_out 100
+  width 960
   height 280
   show_label_times false
+  ruler step: 1, major: 5, decimals: 0
+  channel :CLK, initial: false, color: '#3a0', subtext: '(Pin 3)'
+  channel :DATA, initial: true, color: '#00f', subtext: '(Pin 2)', risefall: 0.5, font_size: 9, text_nudge: [2,0.3]
+  channel_name_nudge [2,0]
+end
+
+# This creates a yellow-backgrounded image with a zig-zag "rip"-style time fold:
+def yellow_with_rip
+  common
+  background_color '#ffe'
+  fold_type type: :saw2, gap_color: '#eec', teeth: 8, gap_width: 15, gap_corner: 'miter'
   style(
     measures: { stroke: '#999', stroke_width: 0.4 },
     label_lines: { stroke: 'cyan', stroke_width: 0.5, stroke_dasharray: '5,5' },
     waveform_base: { stroke_width: 1.5 },
+    fold_band: { stroke: 'none', fill: background_color },
+    fold_edge: { stroke_dasharray: nil, fill: 'none', stroke: '#fff', stroke_width: 12, stroke_linecap: 'round' }
   )
-  ruler step: 1, major: 5, decimals: 0
-  channel :CLK, initial: false, color: '#f80', subtext: '(Pin 3)'
-  channel :DATA, initial: true, color: '#00f', subtext: '(Pin 2)', risefall: 0.5, font_size: 9, text_nudge: [2,0.3]
 end
 
+# This creates a more plain white-background image with a grey zig-zag time fold:
+def white_with_zigzag
+  common
+  fold_type type: :saw2, gap_color: '#eee', teeth: 10
+  style(
+    measures: { stroke: '#999', stroke_width: 0.4 },
+    label_lines: { stroke: 'cyan', stroke_width: 0.5, stroke_dasharray: '5,5' },
+    waveform_base: { stroke_width: 1.5 },
+    fold_edge: { stroke_dasharray: nil, fill: 'none', stroke: '#aaa', stroke_width: 4, stroke_linecap: 'round' }
+  )
+end
+
+
+
 t = Tango::Scope.new do
-  defaults
+  yellow_with_rip
   repeat(2, 'Main Cycle', period: 14400) do |line|
     mark :cycle_start, hide: true
     label("START\nCYCLE ##{line+1}")
     end_measure('Inactive time')
     end_measure('Main Cycle')
     start_measure('Main Cycle', y: -1.5, align: %w(left right), units: :ms)
-    measure('Total active time', y: -1.0, align: %w(left right)) do
+    measure('Total active time', y: -1.0, align: :left) do
       measure('CLK "front porch"', y: -0.5) do
         sample 0..9, CLK: true
       end
@@ -55,7 +80,7 @@ t = Tango::Scope.new do
             sample 0..1, CLK: true
           end
         end
-        measure('Last bit extra hold time', y: 0.5) do
+        measure('Last bit extra hold time', y: 0.5, outer: true) do
           sample 1, DATA: true
         end
         step 6.75
@@ -66,9 +91,9 @@ t = Tango::Scope.new do
       end_measure('CLK "back porch"')
     end # Measure: Total active time.
     start_measure('Inactive time', y: 0.5, align: :left, override: '~ 14.2ms')
-    step 10
+    step 7
     fold :bit_loop_begin
-    mark_seek :cycle_start, 14395 # Seek to 3us before the end of this cycle.
+    mark_seek :cycle_start, 14396 # Seek to 4us before the end of this cycle.
     fold :bit_loop_end
   end
 end
