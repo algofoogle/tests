@@ -26,22 +26,24 @@ HTTPD:listen(80, function(conn)
 
     conn:on("receive", function(sck, payload)
         reqid = reqid + 1
-        print(reqid)
-        if payload:find(" /on HTTP") then
-            print("LED ON")
+        if payload:find("GET /on") then
+            print(reqid, "Turning LED ON")
             led_set(LED.on)
-        elseif payload:find(" /off HTTP") then
-            print("LED off")
+        elseif payload:find("GET /off") then
+            print(reqid, "Turning LED off")
             led_set(LED.off)
-        elseif payload:find(" / HTTP") then
-            print("LED is " .. (LED.state == LED.off and "off" or "ON"))            
+        elseif payload:find("GET / ") then
+            print(reqid, "LED is " .. (LED.state == LED.off and "off" or "ON"))
         else
+            print(reqid, "Returned HTTP 404", payload)
             http_404(sck)
             return
         end
+        print(reqid, "LED.state = " .. LED.state)
         page = [[
             <html>
             <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style type="text/css">
             body,input,select {
                 font-family: Helvetica, Arial, sans-serif;
@@ -62,16 +64,17 @@ HTTPD:listen(80, function(conn)
                 background-color: #eee;
             }
             input {
-                text-align: center;
-                width: 110px;
+                padding: 0;
+                xxtext-align: center;
+                width: 150px;
             }
             </style>
             </head>
             <body>
             <h1>Anton's LED switch</h1>
             <form method="get" action="/]]
-        this_state = ((LED_STATE == LED.on) and "on" or "off")
-        next_state = ((LED_STATE == LED.on) and "off" or "on")
+        this_state = ((LED.state == LED.on) and "on" or "off")
+        next_state = ((LED.state == LED.on) and "off" or "on")
         page = page .. next_state
         page = page .. '" class="led-' .. this_state .. '">'
         page = page .. '<input type="submit" value="' .. this_state .. '" />'
@@ -84,11 +87,7 @@ HTTPD:listen(80, function(conn)
         sck:send(http_header .. page)
     end) -- conn:on("receive"...)
 
-    conn:on("sent", function(sck)
-        print("(Closing socket...)")
-        sck:close()
-        print("(Socket closed)")
-    end)
+    conn:on("sent", function(sck) sck:close() end)
 
 end) -- HTTPD:listen(...)
 
