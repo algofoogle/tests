@@ -20,3 +20,5 @@ me know, and I'd appreciate an acknowledgement somewhere :)
 * `adlib`	- Simple AdLib FM synthesis.
 * `avr`		- Simple Atmel AVR assembly language examples.
 * `nes`		- Hacking around, learning NES (Nintendo Entertainment System) coding.
+* `nodemcu`	- NodeMCU-specific ESP8266 (ESP-12E) tests in Lua.
+* `tango`	- Experimental programmatic timing diagram generator.
