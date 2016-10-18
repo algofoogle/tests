@@ -6,7 +6,9 @@ The board I'm testing with is [eBay item #142121272679](http://www.ebay.com.au/i
 
 Apparently, the specific board I have is mentioned here: <http://frightanic.com/iot/comparison-of-esp8266-nodemcu-development-boards/#v3>
 ...with the key difference being pins 2 and 3 (assuming pin 1 is the top-left)
-which are GND (`G`) and USB +V (`VU`) respectively.
+which are GND (`G`) and USB +V (`VU`) respectively:
+
+[[https://github.com/algofoogle/tests/blob/master/nodemcu/esp8266-nodemcu-dev-kit-v3-pins.jpg]]
 
 The eBay listing states the following:
 
