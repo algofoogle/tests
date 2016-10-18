@@ -35,3 +35,6 @@ The eBay listing states the following:
 * A great set of tools to develop ESP8266
 * **Flash size: 4MByte**
 
+## NodeMCU GPIO pins
+
+See here: <https://nodemcu.readthedocs.io/en/master/en/modules/gpio/>

@@ -16,6 +16,21 @@ else
     HTTPD = nil
 end
 
+-- EXPERIMENTAL:
+-- ledcount_init() is used to prep D0-D3 for output, so we can drive LEDs on them:
+function ledcount_init()
+    gpio.mode(1, gpio.OUTPUT)
+    gpio.mode(2, gpio.OUTPUT)
+end
+-- ledcount_update(n) shows the lower 4 bits of "n" on D0 (LSB) to D3 (MSB):
+function ledcount_update(n)
+    -- NOTE: Inverted logic for these LEDs:
+    gpio.write(1, (bit.band(n,1)==1) and gpio.LOW or gpio.HIGH )
+    gpio.write(2, (bit.band(n,2)==2) and gpio.LOW or gpio.HIGH )
+end
+ledcount_init()
+
+
 -- create the HTTP server:
 print("About to create HTTP server: http://" .. wifi.sta.getip())
 HTTPD = net.createServer(net.TCP)
@@ -26,6 +41,8 @@ HTTPD:listen(80, function(conn)
 
     conn:on("receive", function(sck, payload)
         reqid = reqid + 1
+        ledcount_update(reqid)
+
         if payload:find("GET /on") then
             print(reqid, "Turning LED ON")
             led_set(LED.on)
@@ -39,7 +56,6 @@ HTTPD:listen(80, function(conn)
             http_404(sck)
             return
         end
-        print(reqid, "LED.state = " .. LED.state)
         page = [[
             <html>
             <head>
