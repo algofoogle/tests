@@ -8,7 +8,7 @@ Apparently, the specific board I have is mentioned here: <http://frightanic.com/
 ...with the key difference being pins 2 and 3 (assuming pin 1 is the top-left)
 which are GND (`G`) and USB +V (`VU`) respectively:
 
-[[https://github.com/algofoogle/tests/blob/master/nodemcu/esp8266-nodemcu-dev-kit-v3-pins.jpg]]
+![NodeMCU V3 pin-out](esp8266-nodemcu-dev-kit-v3-pins.jpg?raw=true)!
 
 The eBay listing states the following:
 
