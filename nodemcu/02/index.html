@@ -1,0 +1,37 @@
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style type="text/css">
+body,input,select,textarea,button {
+	font-family: Helvetica, Arial, sans-serif;
+}
+table a {
+	display: block;
+	width: 60px;
+	height: 60px;
+	border-radius: 12px;
+	color: #fff !important;
+	text-align: center;
+	font-size: 41px;
+	text-decoration: none;
+}
+.off a {
+	background-color: #bbb;
+}
+.on a {
+	background-color: #0c0;
+}
+</style>
+</head>
+<body>
+<h1>More light switchery</h1>
+<table cellspacing="2" cellpadding="2" border="0">
+<tr><td>Switch 1:</td><td class="off"><a href="/1?s=0" target="do">&#x2B58;</a></td><td class="on"><a href="/1?s=1" target="do">&#x1f4a1;</a></td></tr>
+<tr><td>Switch 2:</td><td class="off"><a href="/2?s=0" target="do">&#x2B58;</a></td><td class="on"><a href="/2?s=1" target="do">&#x1f4a1;</a></td></tr>
+<tr><td>Switch 3:</td><td class="off"><a href="/3?s=0" target="do">&#x2B58;</a></td><td class="on"><a href="/3?s=1" target="do">&#x1f4a1;</a></td></tr>
+<tr><td>Switch 4:</td><td class="off"><a href="/4?s=0" target="do">&#x2B58;</a></td><td class="on"><a href="/4?s=1" target="do">&#x1f4a1;</a></td></tr>
+</table>
+<br/>
+<iframe name="do" width="120" height="40"></iframe>
+</body>
+</html>
