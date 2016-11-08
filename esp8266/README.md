@@ -48,3 +48,50 @@ The eBay listing states the following:
 
 See here: <https://nodemcu.readthedocs.io/en/master/en/modules/gpio/>
 
+## `03` - `blinky` test modified from `esp-open-sdk`
+
+This is a copy of the [`blinky` example](https://github.com/pfalcon/esp-open-sdk/tree/master/examples/blinky)
+from [`esp-open-sdk`](https://github.com/pfalcon/esp-open-sdk). Note that,
+as such, it requires the `esp-open-sdk`, but arguably makes for a much
+more compact binary (with better memory usage) to run on an ESP8266 module.
+
+In this case, I'm using an
+[ESP-01 module](http://homecircuits.eu/blog/programming-esp01-esp8266/) to test.
+
+I've modified the stock `blinky` example slightly,
+based on some observed changes in the standard `make` process:
+
+1.  The `c` library needs to be included in `LDLIBS` via the `-lc`
+    parameter, in order to implement `memchr()`. NOTE: Apparently this
+    can be avoided if the built-in ESP8266 version of that function
+    can be linked, instead, but I can't be bothered with figuring that
+    out for now: At the time of writing it requires a patch.
+2.  With my installation of `esp-open-sdk` (and the specific
+    "ESP8266 NONOS SDK" that it grabs), it builds the `blinky` ELF
+    binary such that it yields `blinky-0x00000.bin` and
+    **`blinky-0x10000.bin`** (instead of `blinky-0x40000.bin`)
+    so, until I make this handle all cases, I've coded it to expect
+    that difference.
+3.  I changed the baud rate of `esptool.py write_flash ...` from 115,200
+    to 57,600, just because I don't yet have proper decoupling 
+
+After installing `esp-open-sdk` and building
+"...the self-contained, standalone toolchain+SDK", I am able to build this
+example with:
+
+    make
+
+...which produces:
+
+```
+ 486272 Nov  8 23:26 blinky
+  33152 Nov  8 23:26 blinky-0x00000.bin
+ 194016 Nov  8 23:26 blinky-0x10000.bin
+   2236 Nov  8 23:26 blinky.o
+```
+
+I can then reset the device into "Flash" mode and write the firmware with:
+
+    make flash
+
+...after which the LED starts flashing, as per the code.
