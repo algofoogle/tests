@@ -12,7 +12,7 @@ or borrow code that contributes towards a great project, please let
 me know, and I'd appreciate an acknowledgement somewhere :)
 
 * Anton Maurovic
-* http://anton.maurovic.com
+* <http://anton.maurovic.com>
 
 
 ## Projects
@@ -20,5 +20,5 @@ me know, and I'd appreciate an acknowledgement somewhere :)
 * `adlib`	- Simple AdLib FM synthesis.
 * `avr`		- Simple Atmel AVR assembly language examples.
 * `nes`		- Hacking around, learning NES (Nintendo Entertainment System) coding.
-* `nodemcu`	- NodeMCU-specific ESP8266 (ESP-12E) tests in Lua.
+* `esp8266`	- ESP8266 tests including NodeMCU/Lua stuff and esp-open-sdk.
 * `tango`	- Experimental programmatic timing diagram generator.
