@@ -1,0 +1,9 @@
+# Binary files to flash to ESP8266:
+blinky-*.bin
+
+# Intermediate (object) file:
+blinky.o
+
+# ELF binary:
+blinky
+

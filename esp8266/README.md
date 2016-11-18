@@ -95,3 +95,17 @@ I can then reset the device into "Flash" mode and write the firmware with:
     make flash
 
 ...after which the LED starts flashing, as per the code.
+
+## `04` - Basic PWM example
+
+This is a modified version of `03` which runs its timer at 1000Hz and uses it
+to do basic PWM (Pulse-Width Modulation).
+
+It does OK, but apparently there are better ways to do this with the ESP8266.
+
+The main reason for this test was to test out a modified programming adapter
+that I made. It's much smaller, so it is able to run at a faster data rate
+(up to 230kbit instead of 57,600).
+
+
+
