@@ -1,9 +1,9 @@
 # Binary files to flash to ESP8266:
-blinky-*.bin
+blinky_pwm-*.bin
 
 # Intermediate (object) file:
-blinky.o
+blinky_pwm.o
 
 # ELF binary:
-blinky
+blinky_pwm
 

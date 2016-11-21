@@ -1,26 +1,50 @@
+/* tests/esp8266/04/blinky_pwm.c
+ * Basic manual PWM example.
+ */
+
 #include "ets_sys.h"
 #include "osapi.h"
 #include "gpio.h"
 #include "os_type.h"
 
+// Refresh rate is 1000/16 => 62.5Hz:
+#define PWM_STEPS 16
+// Pulsating rate is 62.5 / PWM_STEPS / PWM_DELAY / 2 => 0.651Hz
+// (39.0625 pulses per minute):
+#define PWM_DELAY 3
+
 static const int pin = 1;
 static volatile os_timer_t some_timer;
 static int duty = 0;
 static int step = 0;
-#define PWM_STEPS 10
+static int dir = 1;
+static int repeat = 0;
 
 void some_timerfunc(void *arg)
 {
   if (++step > PWM_STEPS)
   {
-    step = -PWM_STEPS;
-    if (++duty > PWM_STEPS)
+    // We reached the PWM step count. Do we need to adjust the duty cycle?
+    // so adjust the duty cycle as needed:
+    step = 0;
+    if (duty == PWM_STEPS)
     {
-      duty = -PWM_STEPS;
+      // Start going down.
+      dir = -1;
+    }
+    else if (duty == 0)
+    {
+      // Start going up again.
+      dir = 1;
+      os_printf("cycle...\n");
+    }
+    if (++repeat >= PWM_DELAY)
+    {
+      repeat = 0;
+      duty += dir;
     }
   }
-  // Squaring is just a lazy way to do abs():
-  if (step*step > duty*duty)
+  if (step > duty)
   {
     // set gpio low
     gpio_output_set(0, (1 << pin), 0, 0);
