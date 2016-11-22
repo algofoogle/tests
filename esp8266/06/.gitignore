@@ -1,0 +1,11 @@
+# Binary files to flash to ESP8266:
+*-0x*.bin
+
+# Intermediate (object) file:
+*.o
+
+# ELF binary:
+demo
+
+# Contains secrets:
+user_config.h
