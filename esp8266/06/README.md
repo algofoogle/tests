@@ -6,6 +6,10 @@ I will attempt to make this test do a few things:
 2.  Connect to a WIFI AP.
 3.  Periodically send UDP packets to a known host.
 
+**NOTE:** In these examples I use UDP port 12344.
+
+**NOTE:** This isn't finished yet!
+
 ## A UDP listener for testing.
 
 In order to test that this firmware is correctly sending out packets,
@@ -63,9 +67,10 @@ packets:
 
     echo -n 'my packet with no newline' > /dev/udp/127.0.0.1/12344
 
-...so you can test your [listener](#A-UDP-listener-for-testing).
+...so you can test your [listener](#a-udp-listener-for-testing).
 
 ## Other general UDP examples
 
 For more about UDP client/server examples, see:
 [Programming UDP sockets in C on Linux](http://www.binarytides.com/programming-udp-sockets-c-linux/).
+
