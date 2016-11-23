@@ -1,6 +1,5 @@
-/* tests/esp8266/05/demo.c:
- * Main file for a basic WiFi client connection example, with
- * simple serial (UART) output at a configured rate of 115,200 baud.
+/* tests/esp8266/06/demo.c:
+ * Trying to implement better event handling and sending UDP packets.
  */
 
 #include "ets_sys.h"
@@ -12,55 +11,103 @@
 // SSID and password are in here:
 #include "user_config.h"
 
-// Prototype for 'my_task' message processor callback:
-static void my_task(os_event_t* events);
+#define S_WIFI        "WIFI event: "
+#define S_WIFI_UP     S_WIFI "Connected to SSID '%s', channel %d\n"
+#define S_WIFI_DOWN   S_WIFI "Disconnected from SSID '%s'. Reason: %d\n"
+#define S_WIFI_AUTH   S_WIFI "Auth mode changed from %d to %d\n"
+#define S_WIFI_IP     S_WIFI "Got IP: " IPSTR "; Mask: " IPSTR "; GW: " IPSTR "\n"
+#define S_WIFI_UNK    S_WIFI "Unhandled event 0x%x\n"
 
-// Our queue will support a maximum of 1 message, at this stage:
-#define TASK_QUEUE_LENGTH 1
+#define MY_TASK_PRIORITY  USER_TASK_PRIO_0
+#define MY_TASK_QUEUE_LEN 5 // How deep does this queue really need to be?
 
-// Create a buffer of os_event_t objects in memory,
-// which is our queue of task messages.
-os_event_t task_queue[TASK_QUEUE_LENGTH];
+os_event_t my_task_queue[MY_TASK_QUEUE_LEN];
 
 
-// Init function:
+// Prototypes of functions...
+static void ICACHE_FLASH_ATTR handle_wifi_event(System_Event_t*);
+static void ICACHE_FLASH_ATTR handle_system_ready();
+static void ICACHE_FLASH_ATTR handle_my_task(os_event_t*);
+
+// Init function. We set up the system here, including event
+// handlers, and then leave it up to those events to do
+// all of the heavy lifting for us.
 void ICACHE_FLASH_ATTR user_init()
 {
+  // Set UART to work at 115,200 baud and say hello:
+  uart_div_modify(0, UART_CLK_FREQ / 115200);
+  os_printf("ESP8266 test 06 booting...\n");
+
+  // Set the WIFI event handler:
+  wifi_set_event_handler_cb(handle_wifi_event);
+
+  // Define our WiFi DHCP client hostname:
+  wifi_station_set_hostname("ESP-Test06");
+  // Configure wifi settings so we can just be a normal wifi client.
+  // Note that the ..._current version of this function DOESN'T
+  // write these settings to flash:
+  wifi_set_opmode_current(STATION_MODE);
   char ssid[32] = SSID;
   char password[64] = SSID_PASSWORD;
   struct station_config wifi_conf;
-
-  // Set baud rate of debug port:
-  uart_div_modify(0, UART_CLK_FREQ / 115200);
-
-  os_printf("Hello from ESP8266 test 05!\n");
-  os_printf("DEBUG: SDK version: %s\n", system_get_sdk_version());
-  os_printf("DEBUG: Autoconnect: %u\n", wifi_station_get_auto_connect());
-
-  // Define our WiFi client hostname:
-  wifi_station_set_hostname("AntonESP");
-
-  // Set station mode (i.e. we're a WiFi client):
-  wifi_set_opmode(1);
-  // Set AP settings:
   os_memcpy(&wifi_conf.ssid, ssid, sizeof(ssid));
   os_memcpy(&wifi_conf.password, password, sizeof(password));
-  // Apply settings and let the ESP8266 do its auto-connect:
-  wifi_station_set_config(&wifi_conf);
+  wifi_station_set_config_current(&wifi_conf);
 
-  // Create an OS task, for Priority 0, giving it our message queue to use:
-  system_os_task(my_task, USER_TASK_PRIO_0, task_queue, TASK_QUEUE_LENGTH);
-  // Send a message to Priority 0, which 'my_task' will handle:
-  system_os_post(USER_TASK_PRIO_0, 0, 0);
+  // Create a system task that will be our main worker:
+  system_os_task(handle_my_task, MY_TASK_PRIORITY, my_task_queue, MY_TASK_QUEUE_LEN);
+
+  // Set a system init completion callback:
+  system_init_done_cb(handle_system_ready);
+  os_printf("user_init done. Waiting for system init...\n");
 }
 
-// Our message handler for Priority 0 message events:
-static void ICACHE_FLASH_ATTR my_task(os_event_t* event)
+
+// When a WiFi event occurs, wifi_set_event_handler_cb is
+// responsible for making sure our handle_wifi_event function
+// gets called to let us know specifically what happened.
+static void ICACHE_FLASH_ATTR handle_wifi_event(System_Event_t* ev)
 {
-  // Display a message based on our message's parameter:
-  os_printf("my_task sequence %d: Hello\r\n", event->par);
-  // Wait 1sec:
-  os_delay_us(1000000);
-  // Post another message, this time with the parameter incremented:
-  system_os_post(USER_TASK_PRIO_0, 0, event->par+1);
+  switch (ev->event) {
+    case EVENT_STAMODE_CONNECTED:
+      os_printf(S_WIFI_UP, ev->event_info.connected.ssid, ev->event_info.connected.channel);
+      break;
+    case EVENT_STAMODE_DISCONNECTED:
+      os_printf(S_WIFI_DOWN, ev->event_info.disconnected.ssid, ev->event_info.disconnected.reason);
+      break;
+    case EVENT_STAMODE_AUTHMODE_CHANGE:
+      os_printf(S_WIFI_AUTH, ev->event_info.auth_change.old_mode, ev->event_info.auth_change.new_mode);
+      break;
+    case EVENT_STAMODE_GOT_IP:
+      os_printf(
+        S_WIFI_IP,
+        IP2STR(&ev->event_info.got_ip.ip),
+        IP2STR(&ev->event_info.got_ip.mask),
+        IP2STR(&ev->event_info.got_ip.gw)
+      );
+      break;
+    default:
+      os_printf(S_WIFI_UNK, ev->event);
+      break;
+  }
+}
+
+
+// When the ESP8266 core system has finished initialising itself,
+// system_init_done_cb is responsible for making sure our
+// handle_system_ready function gets called to let us know
+// that we can start up our main application-level stuff.
+static void ICACHE_FLASH_ATTR handle_system_ready()
+{
+  os_printf("System init done. Starting app processes...\n");
+  //TODO: FINISH ME!
+}
+
+
+// Our message handler for Priority 0 message events:
+static void ICACHE_FLASH_ATTR handle_my_task(os_event_t* ev)
+{
+  os_printf("(handle_my_task was called)");
+  // Wait 10us:
+  os_delay_us(10);
 }
