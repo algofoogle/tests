@@ -36,11 +36,27 @@ void ICACHE_FLASH_ATTR user_init()
 {
   // Set UART to work at 115,200 baud and say hello:
   uart_div_modify(0, UART_CLK_FREQ / 115200);
-  os_printf("ESP8266 test 06 booting...\n");
+  os_printf("\n\nESP8266 test 06 booting...\n");
+
+  #if 0
+  //NOTE: These lines can be used to reset wifi
+  // settings in the flash, disabling auto-connect, so
+  // we can get total session-level control over all that.
+  os_printf("Clearing wifi settings from flash...\n");
+  // Wipe wifi config from flash:
+  system_restore();
+  // Disable wifi auto-connect, setting it in flash:
+  os_printf("Setting wifi STATION (client) mode...\n");
+  wifi_set_opmode(STATION_MODE);
+  #endif
+
+  os_printf("Disabling wifi auto-connect flash setting...\n");
+  wifi_station_set_auto_connect(0);
 
   // Set the WIFI event handler:
   wifi_set_event_handler_cb(handle_wifi_event);
 
+  #if 1
   // Define our WiFi DHCP client hostname:
   wifi_station_set_hostname("ESP-Test06");
   // Configure wifi settings so we can just be a normal wifi client.
@@ -50,9 +66,11 @@ void ICACHE_FLASH_ATTR user_init()
   char ssid[32] = SSID;
   char password[64] = SSID_PASSWORD;
   struct station_config wifi_conf;
+  wifi_conf.bssid_set = 0;
   os_memcpy(&wifi_conf.ssid, ssid, sizeof(ssid));
   os_memcpy(&wifi_conf.password, password, sizeof(password));
   wifi_station_set_config_current(&wifi_conf);
+  #endif
 
   // Create a system task that will be our main worker:
   system_os_task(handle_my_task, MY_TASK_PRIORITY, my_task_queue, MY_TASK_QUEUE_LEN);
@@ -100,6 +118,11 @@ static void ICACHE_FLASH_ATTR handle_wifi_event(System_Event_t* ev)
 static void ICACHE_FLASH_ATTR handle_system_ready()
 {
   os_printf("System init done. Starting app processes...\n");
+  // Connect wifi:
+  wifi_station_connect();
+  // Call our task handler:
+  system_os_post(MY_TASK_PRIORITY, 0, 0);
+
   //TODO: FINISH ME!
 }
 
@@ -107,7 +130,7 @@ static void ICACHE_FLASH_ATTR handle_system_ready()
 // Our message handler for Priority 0 message events:
 static void ICACHE_FLASH_ATTR handle_my_task(os_event_t* ev)
 {
-  os_printf("(handle_my_task was called)");
+  os_printf("(handle_my_task was called)\n");
   // Wait 10us:
   os_delay_us(10);
 }

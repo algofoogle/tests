@@ -73,7 +73,9 @@ based on some observed changes in the standard `make` process:
     so, until I make this handle all cases, I've coded it to expect
     that difference.
 3.  I changed the baud rate of `esptool.py write_flash ...` from 115,200
-    to 57,600, just because I don't yet have proper decoupling 
+    to 57,600, just because I don't yet have proper decoupling capacitors.
+    (See [4 ways to eliminate ESP8266 resets](http://internetofhomethings.com/homethings/?p=396) for more info).
+
 
 After installing `esp-open-sdk` and building
 "...the self-contained, standalone toolchain+SDK", I am able to build this
@@ -107,5 +109,7 @@ The main reason for this test was to test out a modified programming adapter
 that I made. It's much smaller, so it is able to run at a faster data rate
 (up to 230kbit instead of 57,600).
 
+## `05` - 
 
+(TBC)
 
