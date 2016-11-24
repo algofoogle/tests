@@ -12,9 +12,7 @@
 #include "osapi.h"
 #include "gpio.h"
 #include "os_type.h"
-
-//#include "mem.h"
-
+#include "mem.h"
 #include "user_interface.h"
 #include "ip_addr.h"
 #include "espconn.h"
@@ -114,6 +112,7 @@ static void ICACHE_FLASH_ATTR handle_wifi_event(System_Event_t* ev)
         IP2STR(&ev->event_info.got_ip.mask),
         IP2STR(&ev->event_info.got_ip.gw)
       );
+      system_os_post(MY_TASK_PRIORITY, 0, 0);
       break;
     default:
       os_printf(S_WIFI_UNK, ev->event);
@@ -133,47 +132,50 @@ static void ICACHE_FLASH_ATTR handle_system_ready()
   wifi_station_connect();
   // Call our task handler. Not sure we really need to do this,
   // but it seems fine for now :)
-  system_os_post(MY_TASK_PRIORITY, 0, 0);
+  // system_os_post(MY_TASK_PRIORITY, 0, 0);
 }
 
 
 // Our message handler for Priority 0 message events:
 static void ICACHE_FLASH_ATTR handle_my_task(os_event_t* ev)
 {
+  const char remote_ip[4] = {10,1,1,255};
   os_printf("(handle_my_task was called)\n");
   char hello[] = "Hello!\n";
   sint8 r;
   // Create an espconn structure for UDP purposes.
-  esp_udp esp_udp_struct = {
-    // Remote port:
-    12344,
-    // Local port (set later):
-    0,
-    // Local IP:
-    {0,0,0,0},
-    // Remote IP:
-    {10,1,1,255}
-  };
   struct espconn udp_conn_struct;
   struct espconn* udp = &udp_conn_struct;
   udp->type = ESPCONN_UDP;
   udp->state = ESPCONN_NONE;
-  udp->proto.udp = &esp_udp_struct;
+  // Does udp->proto.udp get freed automatically??
+  udp->proto.udp = (esp_udp *)os_zalloc(sizeof(esp_udp));
   udp->proto.udp->local_port = espconn_port();
-  //udp->proto.udp->remote_port
-  //udp->proto.udp->remote_ip
-  //struct espconn* udp_conn = (struct espconn*) os_zalloc(sizeof(struct espconn));
+  udp->proto.udp->remote_port = 12344;
+  os_memcpy(udp->proto.udp->remote_ip, remote_ip, 4);
 
   if ((r = espconn_create(udp)))
   {
     os_printf("espconn_create FAILED with: %d\n", r);
+    return;
   }
-  else if ((r = espconn_sendto(udp, hello, sizeof(hello)-1)))
+  else
+  {
+    os_printf("espconn_create succeeded\n");
+  }
+
+  // Have to repeat this before espconn_sendto (as espconn_create
+  // will likely have modified it):
+  udp->proto.udp->remote_port = 12344;
+  os_memcpy(udp->proto.udp->remote_ip, remote_ip, 4);
+
+  if ((r = espconn_sendto(udp, hello, 6)))
   {
     os_printf("espconn_sendto FAILED with: %d\n", r);
   }
-  if (!r)
+  else
   {
+    os_printf("espconn_sendto succeeded.\n");
     if ((r = espconn_delete(udp)))
     {
       os_printf("espconn_delete FAILED with: %d\n", r);
