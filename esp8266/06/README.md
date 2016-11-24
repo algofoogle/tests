@@ -10,6 +10,12 @@ I will attempt to make this test do a few things:
 
 **NOTE:** This isn't finished yet!
 
+## Progress/findings
+
+*   See: <http://blog.mark-stevens.co.uk/2015/06/udp-on-the-esp01-esp8266-development-board/>
+*   Also: <http://smallbits.marshall-tribe.net/blog/2016/05/21/esp8266-networking-basics#udp---user-datagram-protocol>
+    *   Hence: <https://github.com/itmarshall/esp8266-projects/tree/master/net-blink>
+
 ## A UDP listener for testing.
 
 In order to test that this firmware is correctly sending out packets,

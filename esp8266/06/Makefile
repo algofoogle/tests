@@ -2,9 +2,11 @@ MAIN = demo
 BAUD = 1500000 # 230400
 CC = xtensa-lx106-elf-gcc
 CFLAGS = -I. -mlongcalls
-# Add -lc for libc, including memchr(), per: https://www.bountysource.com/issues/38624771-undefined-reference-to-memchr
 #LDLIBS = -nostdlib -Wl,--start-group -lmain -lnet80211 -lwpa -llwip -lpp -lphy -Wl,--end-group -lgcc
-LDLIBS = -nostdlib -Wl,--start-group -lmain -lnet80211 -lwpa -llwip -lpp -lphy -lc -Wl,--end-group -lgcc
+# Add -lcirom for libc (compact in IROM), including memchr(), per:
+# * https://www.bountysource.com/issues/38624771-undefined-reference-to-memchr
+# * https://github.com/jcmvbkbc/newlib-xtensa/issues/1#issuecomment-78628852
+LDLIBS = -nostdlib -Wl,--start-group -lmain -lnet80211 -lwpa -llwip -lpp -lphy -lcirom -Wl,--end-group -lgcc
 LDFLAGS = -Teagle.app.v6.ld
 
 #NOTE: This will also build blinky_pwm-0x10000.bin:

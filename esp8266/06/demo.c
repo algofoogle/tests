@@ -2,11 +2,22 @@
  * Trying to implement better event handling and sending UDP packets.
  */
 
+/* For more info, see:
+ * http://blog.mark-stevens.co.uk/2015/06/udp-on-the-esp01-esp8266-development-board/
+ */
+
+//#include "at_custom.h"
+
 #include "ets_sys.h"
 #include "osapi.h"
 #include "gpio.h"
 #include "os_type.h"
+
+//#include "mem.h"
+
 #include "user_interface.h"
+#include "ip_addr.h"
+#include "espconn.h"
 
 // SSID and password are in here:
 #include "user_config.h"
@@ -120,10 +131,9 @@ static void ICACHE_FLASH_ATTR handle_system_ready()
   os_printf("System init done. Starting app processes...\n");
   // Connect wifi:
   wifi_station_connect();
-  // Call our task handler:
+  // Call our task handler. Not sure we really need to do this,
+  // but it seems fine for now :)
   system_os_post(MY_TASK_PRIORITY, 0, 0);
-
-  //TODO: FINISH ME!
 }
 
 
@@ -131,6 +141,46 @@ static void ICACHE_FLASH_ATTR handle_system_ready()
 static void ICACHE_FLASH_ATTR handle_my_task(os_event_t* ev)
 {
   os_printf("(handle_my_task was called)\n");
-  // Wait 10us:
-  os_delay_us(10);
+  char hello[] = "Hello!\n";
+  sint8 r;
+  // Create an espconn structure for UDP purposes.
+  esp_udp esp_udp_struct = {
+    // Remote port:
+    12344,
+    // Local port (set later):
+    0,
+    // Local IP:
+    {0,0,0,0},
+    // Remote IP:
+    {10,1,1,255}
+  };
+  struct espconn udp_conn_struct;
+  struct espconn* udp = &udp_conn_struct;
+  udp->type = ESPCONN_UDP;
+  udp->state = ESPCONN_NONE;
+  udp->proto.udp = &esp_udp_struct;
+  udp->proto.udp->local_port = espconn_port();
+  //udp->proto.udp->remote_port
+  //udp->proto.udp->remote_ip
+  //struct espconn* udp_conn = (struct espconn*) os_zalloc(sizeof(struct espconn));
+
+  if ((r = espconn_create(udp)))
+  {
+    os_printf("espconn_create FAILED with: %d\n", r);
+  }
+  else if ((r = espconn_sendto(udp, hello, sizeof(hello)-1)))
+  {
+    os_printf("espconn_sendto FAILED with: %d\n", r);
+  }
+  if (!r)
+  {
+    if ((r = espconn_delete(udp)))
+    {
+      os_printf("espconn_delete FAILED with: %d\n", r);
+    }
+    else
+    {
+      os_printf("UDP packet sent as expected: '%s' (%d bytes)\n", hello, sizeof(hello)-1);
+    }
+  }
 }
