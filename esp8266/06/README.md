@@ -16,6 +16,21 @@ I will attempt to make this test do a few things:
 *   Also: <http://smallbits.marshall-tribe.net/blog/2016/05/21/esp8266-networking-basics#udp---user-datagram-protocol>
     *   Hence: <https://github.com/itmarshall/esp8266-projects/tree/master/net-blink>
 
+## Clearing WIFI settings stored in flash
+
+```c
+  //NOTE: These lines can be used to reset wifi
+  // settings in the flash, disabling auto-connect, so
+  // we can get total session-level control over all that.
+  os_printf("Clearing wifi settings from flash...\n");
+  // Wipe wifi config from flash:
+  system_restore();
+  // Disable wifi auto-connect, setting it in flash:
+  os_printf("Setting wifi STATION (client) mode...\n");
+  wifi_set_opmode(STATION_MODE);
+```
+
+
 ## A UDP listener for testing.
 
 In order to test that this firmware is correctly sending out packets,

@@ -6,8 +6,6 @@
  * http://blog.mark-stevens.co.uk/2015/06/udp-on-the-esp01-esp8266-development-board/
  */
 
-//#include "at_custom.h"
-
 #include "ets_sys.h"
 #include "osapi.h"
 #include "gpio.h"
@@ -20,6 +18,7 @@
 // SSID and password are in here:
 #include "user_config.h"
 
+// Strings:
 #define S_WIFI        "WIFI event: "
 #define S_WIFI_UP     S_WIFI "Connected to SSID '%s', channel %d\n"
 #define S_WIFI_DOWN   S_WIFI "Disconnected from SSID '%s'. Reason: %d\n"
@@ -27,11 +26,17 @@
 #define S_WIFI_IP     S_WIFI "Got IP: " IPSTR "; Mask: " IPSTR "; GW: " IPSTR "\n"
 #define S_WIFI_UNK    S_WIFI "Unhandled event 0x%x\n"
 
+// System OS Task-handling stuff:
 #define MY_TASK_PRIORITY  USER_TASK_PRIO_0
 #define MY_TASK_QUEUE_LEN 5 // How deep does this queue really need to be?
-
 os_event_t my_task_queue[MY_TASK_QUEUE_LEN];
 
+// Create an espconn structure for UDP purposes.
+//NOTE: I've found that if this is a local variable in
+// a function, espconn_sendto() crashes when using it.
+// I guess espconn_sendto() doesn't like it being on the
+// stack for some reason?
+LOCAL struct espconn udp_conn;
 
 // Prototypes of functions...
 static void ICACHE_FLASH_ATTR handle_wifi_event(System_Event_t*);
@@ -47,27 +52,23 @@ void ICACHE_FLASH_ATTR user_init()
   uart_div_modify(0, UART_CLK_FREQ / 115200);
   os_printf("\n\nESP8266 test 06 booting...\n");
 
-  #if 0
-  //NOTE: These lines can be used to reset wifi
-  // settings in the flash, disabling auto-connect, so
-  // we can get total session-level control over all that.
-  os_printf("Clearing wifi settings from flash...\n");
-  // Wipe wifi config from flash:
-  system_restore();
-  // Disable wifi auto-connect, setting it in flash:
-  os_printf("Setting wifi STATION (client) mode...\n");
-  wifi_set_opmode(STATION_MODE);
-  #endif
-
-  os_printf("Disabling wifi auto-connect flash setting...\n");
-  wifi_station_set_auto_connect(0);
-
-  // Set the WIFI event handler:
+  // Set the WIFI event handler.
+  // This will notify us when we're connected, so
+  // we can immediately react to it. This is an alternative
+  // to, say, setting a timer to check our connection status.
+  // This was just to prove it could be done; I think the
+  // timer might be a better approach just as it gives us a
+  // meaningful structure in which to set a timeout and
+  // decide on something to do instead, rather than just
+  // waiting/hanging indefinitely.
   wifi_set_event_handler_cb(handle_wifi_event);
 
-  #if 1
   // Define our WiFi DHCP client hostname:
   wifi_station_set_hostname("ESP-Test06");
+  // Disable auto-connect:
+  wifi_station_set_auto_connect(0);
+  // Enable automatic re-connection:
+  wifi_station_set_reconnect_policy(1);
   // Configure wifi settings so we can just be a normal wifi client.
   // Note that the ..._current version of this function DOESN'T
   // write these settings to flash:
@@ -79,7 +80,6 @@ void ICACHE_FLASH_ATTR user_init()
   os_memcpy(&wifi_conf.ssid, ssid, sizeof(ssid));
   os_memcpy(&wifi_conf.password, password, sizeof(password));
   wifi_station_set_config_current(&wifi_conf);
-  #endif
 
   // Create a system task that will be our main worker:
   system_os_task(handle_my_task, MY_TASK_PRIORITY, my_task_queue, MY_TASK_QUEUE_LEN);
@@ -112,6 +112,8 @@ static void ICACHE_FLASH_ATTR handle_wifi_event(System_Event_t* ev)
         IP2STR(&ev->event_info.got_ip.mask),
         IP2STR(&ev->event_info.got_ip.gw)
       );
+      // Once we're connected, trigger our Task that will send
+      // UDP packets:
       system_os_post(MY_TASK_PRIORITY, 0, 0);
       break;
     default:
@@ -139,22 +141,19 @@ static void ICACHE_FLASH_ATTR handle_system_ready()
 // Our message handler for Priority 0 message events:
 static void ICACHE_FLASH_ATTR handle_my_task(os_event_t* ev)
 {
-  const char remote_ip[4] = {10,1,1,255};
+  // We'll broadcast to all hosts on the network:
+  const char remote_ip[4] = {255,255,255,255};
   os_printf("(handle_my_task was called)\n");
   char hello[] = "Hello!\n";
   sint8 r;
-  // Create an espconn structure for UDP purposes.
-  struct espconn udp_conn_struct;
-  struct espconn* udp = &udp_conn_struct;
-  udp->type = ESPCONN_UDP;
-  udp->state = ESPCONN_NONE;
+  udp_conn.type = ESPCONN_UDP;
   // Does udp->proto.udp get freed automatically??
-  udp->proto.udp = (esp_udp *)os_zalloc(sizeof(esp_udp));
-  udp->proto.udp->local_port = espconn_port();
-  udp->proto.udp->remote_port = 12344;
-  os_memcpy(udp->proto.udp->remote_ip, remote_ip, 4);
+  udp_conn.proto.udp = (esp_udp *)os_zalloc(sizeof(esp_udp));
+  udp_conn.proto.udp->local_port = espconn_port();
+  udp_conn.proto.udp->remote_port = 12344;
+  os_memcpy(udp_conn.proto.udp->remote_ip, remote_ip, 4);
 
-  if ((r = espconn_create(udp)))
+  if ((r = espconn_create(&udp_conn)))
   {
     os_printf("espconn_create FAILED with: %d\n", r);
     return;
@@ -166,23 +165,24 @@ static void ICACHE_FLASH_ATTR handle_my_task(os_event_t* ev)
 
   // Have to repeat this before espconn_sendto (as espconn_create
   // will likely have modified it):
-  udp->proto.udp->remote_port = 12344;
-  os_memcpy(udp->proto.udp->remote_ip, remote_ip, 4);
+  udp_conn.proto.udp->remote_port = 12344;
+  os_memcpy(udp_conn.proto.udp->remote_ip, remote_ip, 4);
 
-  if ((r = espconn_sendto(udp, hello, 6)))
+  if ((r = espconn_sendto(&udp_conn, hello, sizeof(hello))))
   {
     os_printf("espconn_sendto FAILED with: %d\n", r);
   }
   else
   {
     os_printf("espconn_sendto succeeded.\n");
-    if ((r = espconn_delete(udp)))
+    if ((r = espconn_delete(&udp_conn)))
     {
       os_printf("espconn_delete FAILED with: %d\n", r);
     }
     else
     {
-      os_printf("UDP packet sent as expected: '%s' (%d bytes)\n", hello, sizeof(hello)-1);
+      os_printf("UDP packet sent as expected: %s\n", hello);
+      os_printf("(%d bytes)", sizeof(hello)-1);
     }
   }
 }
