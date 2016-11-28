@@ -1,20 +1,23 @@
 # `esp8266/06` test
 
-I will attempt to make this test do a few things:
+This example does the following:
 
-1.  Use proper initialisation callbacks, WDT, etc.
-2.  Connect to a WIFI AP.
-3.  Periodically send UDP packets to a known host.
+1.  Uses proper initialisation callbacks (I think?)
+2.  Connect to a WIFI AP, using a handler for WiFi events.
+3.  Broadcasts a single UDP packet to the network.
 
 **NOTE:** In these examples I use UDP port 12344.
 
-**NOTE:** This isn't finished yet!
 
-## Progress/findings
+## Resources
 
-*   See: <http://blog.mark-stevens.co.uk/2015/06/udp-on-the-esp01-esp8266-development-board/>
-*   Also: <http://smallbits.marshall-tribe.net/blog/2016/05/21/esp8266-networking-basics#udp---user-datagram-protocol>
-    *   Hence: <https://github.com/itmarshall/esp8266-projects/tree/master/net-blink>
+Some of the pages I used for information were:
+
+*   <http://blog.mark-stevens.co.uk/2015/06/udp-on-the-esp01-esp8266-development-board/>
+*   <http://smallbits.marshall-tribe.net/blog/2016/05/21/esp8266-networking-basics#udp---user-datagram-protocol>
+*   <https://github.com/itmarshall/esp8266-projects/tree/master/net-blink>
+*	<http://bbs.espressif.com/viewtopic.php?f=31&t=440>
+
 
 ## Clearing WIFI settings stored in flash
 
@@ -43,6 +46,7 @@ listener, rather than just a general listener.
 
 So, there are at least two solutions for a UDP listener that can
 receive and display packets from any host at any time:
+
 
 ### 1. `socat`
 
@@ -74,7 +78,9 @@ given port, and display them:
 See [`udp.pl`](udp.pl) which came from
 [John Graham-Cumming's blog](http://blog.jgc.org/2012/12/listen-on-udp-port-and-dump-received.html).
 
-It works on Linux and macOS.
+It works on Linux and macOS. For some reason it doesn't
+work on my home Mac/network, though I have had it working
+on a different Mac/network.
 
 Run it like this:
 

@@ -109,7 +109,20 @@ The main reason for this test was to test out a modified programming adapter
 that I made. It's much smaller, so it is able to run at a faster data rate
 (up to 230kbit instead of 57,600).
 
-## `05` - 
+## `05` - Basic WiFi client
 
-(TBC)
+This example demonstrates code to:
 
+*   Set the UART baud rate to 115,200bps.
+*   Configure WiFi for "Station" (client) mode,
+    with SSID and password, and let it connect.
+*   Register a system task handler and post a
+    message to it.
+
+## `06` - WiFi event handling with UDP send
+
+This example registers a WiFi event handler to detect and respond to the
+exact moment when it connects and disconnects, but especially when it gets an
+IP through DHCP. In response to getting on the network it triggers a system
+task that then broadcasts a UDP packet to the network with a basic "Hello"
+message.
