@@ -80,6 +80,31 @@ typedef struct {
 
 BUILD_BUG_ON(sizeof(SetPixelFormat_t) != 19);
 
+#define DUMP_PIXEL_FORMAT(zzpf) \
+printf(  \
+  "BPP:          %d\n"        \
+  "Depth:        %d\n"        \
+  "Endianness:   %s\n"        \
+  "True-colour:  %s\n"        \
+  "Mask Red:     0x%04X\n"    \
+  "Mask Green:   0x%04X\n"    \
+  "Mask Blue:    0x%04X\n"    \
+  "Shift Red:    %d\n"        \
+  "Shift Green:  %d\n"        \
+  "Shift Blue:   %d\n",  \
+  (zzpf)->bpp,  \
+  (zzpf)->depth,  \
+  (zzpf)->big_endian ? "BIG" : "little",  \
+  (zzpf)->true_colour ? "YES" : "no",  \
+  (unsigned int)RFB16(*(U16*)((zzpf)->r_max)),  \
+  (unsigned int)RFB16(*(U16*)((zzpf)->g_max)),  \
+  (unsigned int)RFB16(*(U16*)((zzpf)->b_max)),  \
+  (zzpf)->r_shift,  \
+  (zzpf)->g_shift,  \
+  (zzpf)->b_shift  \
+)
+
+
 // Variable length:
 typedef struct {
   U8 _padding[1];
@@ -353,6 +378,7 @@ int RFB_ServerInit(rfb_conn *pc, int width, int height, char *name)
   si->format.r_shift = 16;
   si->format.g_shift = 8;
   si->format.b_shift = 0;
+  DUMP_PIXEL_FORMAT(&si->format);
   return Send(pc->sock, (char*)si, server_init_data_length, 0);
 }
 
@@ -476,13 +502,159 @@ void DEBUG_HexDump(char *data, int len, char *heading)
 #define CASE_PRINT(zzconst) case zzconst: { printf("%s", (#zzconst)); break; }
 
 
-void RFB_HandleClient(int sock)
+int RFB_Handshake(rfb_conn *pc)
 {
-  rfb_conn conn;
+  char *client_ver;
+  unsigned int value;
+  client_ver = RFB_WaitFor(pc, 12);
+  if (!client_ver)
+  {
+    printf("Didn't get client version string\n");
+    return -1;
+  }
+  nprint("Client version: ", client_ver, 12, "\n");
+  // Send our required security type:
+  SOCK_SendU32(pc->sock, RFB_SEC_NONE);
+  // Expect ClientInit (share flag byte):
+  if (RFB_WaitForU8(pc, &value) < 0)
+  {
+    printf("Didn't get ClientInit\n");
+    return -1;
+  }
+  printf("ClientInit share flag: %d\n", value);
+  // Send ServerInit:
+  if (RFB_ServerInit(pc, 500, 500, "Anton's Test Server") < 0)
+  {
+    printf("ServerInit failed\n");
+    return -1;
+  }
+  printf("ServerInit sent; ready for Client commands\n");
+  return 0;
+}
+
+
+// int RFB_Handle_SetPixelFormat(rfb_conn *pc)
+// {
+
+// }
+
+#define BEGIN_CLIENT_COMMAND_SET() {
+#define CLIENT_COMMAND(zzcmd,zzvar) \
+  } case k##zzcmd: { \
+    zzcmd##_t *zzvar; \
+    printf(#zzcmd); \
+    zzvar = RFB_WaitForStruct(pc, zzcmd##_t); \
+    if (!zzvar) { \
+      printf(" - Failed!\n"); \
+      return -1; \
+    } \
+    else
+#define END_CLIENT_COMMAND_SET()  }
+
+int RFB_WaitForClientCommand(rfb_conn *pc)
+{
+  // Wait for command [byte] from client:
   int size;
   unsigned int value;
   char ver_string[13] = {0};
   char *tmp;
+  // printf("(RFB_WaitForClientCommand)\n");
+  if (RFB_WaitForU8(pc, &value) < 0)
+  {
+    printf("Failed while waiting for client command: Disconnected?\n");
+    return -1;
+  }
+  printf("Client command: ");
+  switch (value)
+  {
+    BEGIN_CLIENT_COMMAND_SET();
+    CLIENT_COMMAND(SetPixelFormat,m)
+    {
+      #warning TODO: Handle SetPixelFormat!
+      printf(" - Not implemented\n");
+      HEXDUMP("", m, 1, 0);
+      DUMP_PIXEL_FORMAT(&m->format);
+      break;
+    }
+    CLIENT_COMMAND(SetEncodings,m)
+    {
+      int count;
+      S32 *encoding_types;
+      HEXDUMP("", m, 1, 0);
+      count = RFB16(m->count);
+      if (count > 0)
+      {
+        // Get extra data:
+        printf(" x %d", count);
+        encoding_types = (S32*)RFB_WaitFor(pc, sizeof(S32)*count);
+        if (!encoding_types)
+        {
+          printf(" - Failed getting %d encoding types!", count);
+          return -1;
+        }
+      }
+      #warning TODO: Handle SetEncodings!
+      printf(" - Not implemented\n");
+      HEXDUMP("", encoding_types, count, 0);
+      break;
+    }
+    CLIENT_COMMAND(FramebufferUpdateRequest,m)
+    {
+      #warning TODO: Handle FramebufferUpdateRequest!
+      printf(" - Not implemented\n");
+      HEXDUMP("", m, 1, 0);
+      break;
+    }
+    CLIENT_COMMAND(KeyEvent,m)
+    {
+      #warning TODO: Handle KeyEvent!
+      printf(" - Not implemented\n");
+      printf("Key '%c' %s", (char)RFB32(m->key), m->down ? "down" : "up");
+      // HEXDUMP("", m, 1, 0);
+      break;
+    }
+    CLIENT_COMMAND(PointerEvent,m)
+    {
+      #warning TODO: Handle PointerEvent!
+      printf(" - Not implemented\n");
+      printf("Pos: (%d,%d) - Buttons: "BYTE_TO_BINARY_PATTERN, (int)RFB16(m->x), (int)RFB16(m->y), BYTE_TO_BINARY(m->button_mask));
+      // HEXDUMP("", m, 1, 0);
+      break;
+    }
+    CLIENT_COMMAND(ClientCutText,m)
+    {
+      int len;
+      char *text;
+      len = m->len;
+      if (len > 0)
+      {
+        // Get extra data:
+        text = RFB_WaitFor(pc, sizeof(U8)*len);
+        if (!text)
+        {
+          printf(" - Failed getting %d bytes!", len);
+          return -1;
+        }
+        printf(" x %d byte(s)", len);
+      }
+      #warning TODO: Handle ClientCutText!
+      printf(" - Not implemented");
+      break;
+    }
+    END_CLIENT_COMMAND_SET();
+    default:
+    {
+      printf("Unknown (0x%02X)", (U8)value);
+      break;
+    }
+  }
+  return value;
+}
+
+
+void RFB_HandleClient(int sock)
+{
+  rfb_conn conn;
   printf("Accepted connection %d\n", sock);
   if (RFB_OpenClient(sock, &conn) < 0)
   {
@@ -500,182 +672,23 @@ void RFB_HandleClient(int sock)
       case STATE_HANDSHAKE:
       {
         // Expecting version string from client, then ClientInit (share flag)...
-        tmp = RFB_WaitFor(&conn, 12);
-        if (!tmp)
+        if (RFB_Handshake(&conn) < 0)
         {
-          printf("Didn't get client version string\n");
           abort = 1;
           break;
         }
-        nprint("Client version: ", tmp, 12, "\n");
-        // Send our required security type:
-        SOCK_SendU32(sock, RFB_SEC_NONE);
-        // Expect ClientInit (share flag byte):
-        if (RFB_WaitForU8(&conn, &value) < 0)
-        {
-          printf("Didn't get ClientInit\n");
-          abort = 1;
-          break;
-        }
-        printf("ClientInit share flag: %d\n", value);
-        // Send ServerInit:
-        if (RFB_ServerInit(&conn, 500, 500, "Anton's Test Server") < 0)
-        {
-          printf("ServerInit failed\n");
-          abort = 1;
-          break;
-        }
-        printf("ServerInit sent; ready for Client commands\n");
         state = STATE_READY;
         break;
       }
       case STATE_READY:
       {
-        // Wait for command [byte] from client:
-        if (RFB_WaitForU8(&conn, &value) < 0)
+        printf("ready...\n");
+        if (RFB_WaitForClientCommand(&conn) < 0)
         {
-          printf("Failed while waiting for client command: Disconnected?\n");
           abort = 1;
           break;
         }
-        printf("Client command: ");
-        switch (value)
-        {
-          case kSetPixelFormat:
-          {
-            SetPixelFormat_t *m;
-            printf("SetPixelFormat");
-            m = RFB_WaitForStruct(&conn, SetPixelFormat_t);
-            if (!m)
-            {
-              printf(" - Failed!");
-              abort = 1;
-              break;
-            }
-            #warning TODO: Handle SetPixelFormat!
-            printf(" - Not implemented\n");
-            HEXDUMP("", m, 1, 0);
-            break;
-          }
-          case kSetEncodings:
-          {
-            SetEncodings_t *m;
-            int count;
-            S32 *encoding_types;
-            printf("SetEncodings");
-            m = RFB_WaitForStruct(&conn, SetEncodings_t);
-            if (!m)
-            {
-              printf(" - Failed!");
-              abort = 1;
-              break;
-            }
-            printf("\n");
-            HEXDUMP("", m, 1, 0);
-            count = RFB16(m->count);
-            if (count > 0)
-            {
-              // Get extra data:
-              printf(" x %d", count);
-              encoding_types = (S32*)RFB_WaitFor(&conn, sizeof(S32)*count);
-              if (!encoding_types)
-              {
-                printf(" - Failed getting %d encoding types!", count);
-                abort = 1;
-                break;
-              }
-            }
-            #warning TODO: Handle SetEncodings!
-            printf(" - Not implemented\n");
-            HEXDUMP("", encoding_types, count, 0);
-            break;
-          }
-          case kFramebufferUpdateRequest:
-          {
-            FramebufferUpdateRequest_t *m;
-            printf("FramebufferUpdateRequest");
-            m = RFB_WaitForStruct(&conn, FramebufferUpdateRequest_t);
-            if (!m)
-            {
-              printf(" - Failed!");
-              abort = 1;
-              break;
-            }
-            #warning TODO: Handle FramebufferUpdateRequest!
-            printf(" - Not implemented\n");
-            HEXDUMP("", m, 1, 0);
-            break;
-          }
-          case kKeyEvent:
-          {
-            KeyEvent_t *m;
-            printf("KeyEvent");
-            m = RFB_WaitForStruct(&conn, KeyEvent_t);
-            if (!m)
-            {
-              printf(" - Failed!");
-              abort = 1;
-              break;
-            }
-            #warning TODO: Handle KeyEvent!
-            printf(" - Not implemented\n");
-            printf("Key '%c' %s", RFB32(m->key), m->down ? "down" : "up");
-            // HEXDUMP("", m, 1, 0);
-            break;
-          }
-          case kPointerEvent:
-          {
-            PointerEvent_t *m;
-            printf("PointerEvent");
-            m = RFB_WaitForStruct(&conn, PointerEvent_t);
-            if (!m)
-            {
-              printf(" - Failed!");
-              abort = 1;
-              break;
-            }
-            #warning TODO: Handle PointerEvent!
-            printf(" - Not implemented\n");
-            printf("Pos: (%d,%d) - Buttons: "BYTE_TO_BINARY_PATTERN, RFB16(m->x), RFB16(m->y), BYTE_TO_BINARY(m->button_mask));
-            // HEXDUMP("", m, 1, 0);
-            break;
-          }
-          case kClientCutText:
-          {
-            ClientCutText_t *m;
-            int len;
-            char *text;
-            printf("ClientCutText");
-            m = RFB_WaitForStruct(&conn, ClientCutText_t);
-            if (!m)
-            {
-              printf(" - Failed!");
-              abort = 1;
-              break;
-            }
-            len = m->len;
-            if (len > 0)
-            {
-              // Get extra data:
-              text = RFB_WaitFor(&conn, sizeof(U8)*len);
-              if (!text)
-              {
-                printf(" - Failed getting %d bytes!", len);
-                abort = 1;
-                break;
-              }
-              printf(" x %d byte(s)", len);
-            }
-            #warning TODO: Handle ClientCutText!
-            printf(" - Not implemented");
-            break;
-          }
-          default:
-          {
-            printf("Unknown (0x%02X)", (U8)value);
-            break;
-          }
-        }
+        
         printf("\n");
         break;
       }
