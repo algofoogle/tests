@@ -8,6 +8,7 @@
 #include <stdarg.h>
 #include <unistd.h>
 #include <errno.h>
+#include <signal.h>
 
 #define PORT 5905
 
@@ -56,6 +57,9 @@ enum {
 #endif
 
 
+static volatile int gServerSocket = -1; // Volatile because CTRL+C (SIGINT) handler can mess with it.
+
+
 typedef struct {
   U8 bpp;
   U8 depth;
@@ -69,6 +73,17 @@ typedef struct {
   U8 b_shift;
   U8 _padding[3];
 } PACKED pixel_format;
+
+
+typedef struct {
+  int sock;
+  char *buffer;
+  int size;
+  int len;
+  int offset;
+  pixel_format format;
+} rfb_conn;
+
 
 BUILD_BUG_ON(sizeof(pixel_format) != 16);
 
@@ -155,8 +170,10 @@ typedef struct {
 int Send(int sock, char *data, int len, int flags)
 {
   int i;
+  #ifdef DEBUG
   for (i=0; i<len; ++i) { printf("%02X ",(unsigned char)data[i]); }
   printf("\n");
+  #endif // DEBUG
   return send(sock, data, len, flags);
 }
 
@@ -214,15 +231,6 @@ int SOCK_SendU32(int sock, unsigned int value)
   buffer[0] = value & 0xFFL;
   return Send(sock, (char*)buffer, sizeof(buffer), 0);
 }
-
-
-typedef struct {
-  int sock;
-  char *buffer;
-  int size;
-  int len;
-  int offset;
-} rfb_conn;
 
 
 int RFB_OpenClient(int sock, rfb_conn *pconn)
@@ -306,7 +314,7 @@ char *RFB_WaitFor(rfb_conn *pc, int bytes)
     incoming = recv(pc->sock, (void*)(pc->buffer+pc->offset+pc->len), underrun, 0);
     if (!incoming)
     {
-      printf("No data?\n");
+      printf("Client closed the connection.\n");
       return NULL;
     }
     if (incoming < 0)
@@ -378,7 +386,8 @@ int RFB_ServerInit(rfb_conn *pc, int width, int height, char *name)
   si->format.r_shift = 16;
   si->format.g_shift = 8;
   si->format.b_shift = 0;
-  DUMP_PIXEL_FORMAT(&si->format);
+  memcpy(&pc->format, &si->format, sizeof(pc->format));
+  DUMP_PIXEL_FORMAT(&pc->format);
   return Send(pc->sock, (char*)si, server_init_data_length, 0);
 }
 
@@ -471,6 +480,8 @@ int nprint(char *prefix, char *str, int len, char *suffix)
 }
 
 
+#ifdef DEBUG
+#define HEXDUMP(zzhead,zzsrc,zzmul,zzextra) DEBUG_HexDump((char*)(zzsrc),sizeof(*(zzsrc))*(zzmul)+(zzextra),(zzhead))
 void DEBUG_HexDump(char *data, int len, char *heading)
 {
   int i, j;
@@ -494,9 +505,9 @@ void DEBUG_HexDump(char *data, int len, char *heading)
     printf(" %s\n", cbuf);
   }
 }
-
-
-#define HEXDUMP(zzhead,zzsrc,zzmul,zzextra) DEBUG_HexDump((char*)(zzsrc),sizeof(*(zzsrc))*(zzmul)+(zzextra),(zzhead))
+#else
+#define HEXDUMP(zzhead,zzsrc,zzmul,zzextra)
+#endif // DEBUG
 
 
 #define CASE_PRINT(zzconst) case zzconst: { printf("%s", (#zzconst)); break; }
@@ -504,6 +515,7 @@ void DEBUG_HexDump(char *data, int len, char *heading)
 
 int RFB_Handshake(rfb_conn *pc)
 {
+  pixel_format current_format = {0};
   char *client_ver;
   unsigned int value;
   client_ver = RFB_WaitFor(pc, 12);
@@ -570,10 +582,9 @@ int RFB_WaitForClientCommand(rfb_conn *pc)
     BEGIN_CLIENT_COMMAND_SET();
     CLIENT_COMMAND(SetPixelFormat,m)
     {
-      #warning TODO: Handle SetPixelFormat!
-      printf(" - Not implemented\n");
-      HEXDUMP("", m, 1, 0);
-      DUMP_PIXEL_FORMAT(&m->format);
+      memcpy(&pc->format, &m->format, sizeof(pc->format));
+      printf(" - Done\n");
+      DUMP_PIXEL_FORMAT(&pc->format);
       break;
     }
     CLIENT_COMMAND(SetEncodings,m)
@@ -589,25 +600,22 @@ int RFB_WaitForClientCommand(rfb_conn *pc)
         encoding_types = (S32*)RFB_WaitFor(pc, sizeof(S32)*count);
         if (!encoding_types)
         {
-          printf(" - Failed getting %d encoding types!", count);
+          printf(" - Failed getting %d encoding types!\n", count);
           return -1;
         }
       }
-      #warning TODO: Handle SetEncodings!
       printf(" - Not implemented\n");
       HEXDUMP("", encoding_types, count, 0);
       break;
     }
     CLIENT_COMMAND(FramebufferUpdateRequest,m)
     {
-      #warning TODO: Handle FramebufferUpdateRequest!
       printf(" - Not implemented\n");
       HEXDUMP("", m, 1, 0);
       break;
     }
     CLIENT_COMMAND(KeyEvent,m)
     {
-      #warning TODO: Handle KeyEvent!
       printf(" - Not implemented\n");
       printf("Key '%c' %s", (char)RFB32(m->key), m->down ? "down" : "up");
       // HEXDUMP("", m, 1, 0);
@@ -615,9 +623,7 @@ int RFB_WaitForClientCommand(rfb_conn *pc)
     }
     CLIENT_COMMAND(PointerEvent,m)
     {
-      #warning TODO: Handle PointerEvent!
-      printf(" - Not implemented\n");
-      printf("Pos: (%d,%d) - Buttons: "BYTE_TO_BINARY_PATTERN, (int)RFB16(m->x), (int)RFB16(m->y), BYTE_TO_BINARY(m->button_mask));
+      printf(" - Pos: (%d,%d) - Buttons: "BYTE_TO_BINARY_PATTERN"\n", (int)RFB16(m->x), (int)RFB16(m->y), BYTE_TO_BINARY(m->button_mask));
       // HEXDUMP("", m, 1, 0);
       break;
     }
@@ -632,19 +638,19 @@ int RFB_WaitForClientCommand(rfb_conn *pc)
         text = RFB_WaitFor(pc, sizeof(U8)*len);
         if (!text)
         {
-          printf(" - Failed getting %d bytes!", len);
+          printf(" - Failed getting %d bytes!\n", len);
           return -1;
         }
         printf(" x %d byte(s)", len);
       }
-      #warning TODO: Handle ClientCutText!
-      printf(" - Not implemented");
+      printf(" - Not implemented\n");
       break;
     }
     END_CLIENT_COMMAND_SET();
     default:
     {
-      printf("Unknown (0x%02X)", (U8)value);
+      printf("Unknown (0x%02X)\n", (U8)value);
+      // SMELL: Should probably terminate here because now we're out of sync.
       break;
     }
   }
@@ -682,14 +688,11 @@ void RFB_HandleClient(int sock)
       }
       case STATE_READY:
       {
-        printf("ready...\n");
         if (RFB_WaitForClientCommand(&conn) < 0)
         {
           abort = 1;
           break;
         }
-        
-        printf("\n");
         break;
       }
     }
@@ -699,34 +702,69 @@ void RFB_HandleClient(int sock)
 }
 
 
+#define SIGINT_MSG_1 "SIGINT: Terminating...\n"
+#define SIGINT_MSG_2 "SIGINT: Server socket closed.\n"
+#define SIG_UNK_MSG "UNHANDLED SIGNAL\n"
+
+// NOTE: Can't use printf() in a signal handler.
+void SIG_Handle(int sig)
+{
+  switch (sig)
+  {
+    case SIGINT:
+    {
+      int sock = gServerSocket;
+      gServerSocket = -1;
+      write(STDERR_FILENO, SIGINT_MSG_1, sizeof(SIGINT_MSG_1)-1);
+      if (sock != -1)
+      {
+        // SMELL: Also need to kill all client sockets.
+        close(sock);
+        write(STDERR_FILENO, SIGINT_MSG_2, sizeof(SIGINT_MSG_2)-1);
+      }
+      exit(0);
+      break;
+    }
+    default:
+    {
+      write(STDERR_FILENO, SIG_UNK_MSG, sizeof(SIG_UNK_MSG)-1);
+      break;
+    }
+  }
+}
+
+
+
 int main(int argc, char **argv)
 {
   int result;
-  int server_socket, client_socket;
+  int client_socket;
   struct sockaddr_in server_host, client_host;
 
-  server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-  if (server_socket < 0)
+  signal(SIGINT, SIG_Handle);
+
+  gServerSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (gServerSocket < 0)
   {
-    printf("Failed to create server socket. Result: %d\n", server_socket);
+    printf("Failed to create server socket. Result: %d\n", gServerSocket);
     exit(1);
   }
   memset(&server_host, 0, sizeof(server_host));
   server_host.sin_family = AF_INET;
   server_host.sin_addr.s_addr = htonl(INADDR_ANY);
   server_host.sin_port = htons(PORT);
-  result = bind(server_socket, (struct sockaddr*)&server_host, sizeof(server_host));
+  result = bind(gServerSocket, (struct sockaddr*)&server_host, sizeof(server_host));
   if (result < 0)
   {
-    printf("Failed to bind to socket %d. Result: %d\n", server_socket, result);
-    close(server_socket);
+    printf("Failed to bind to socket %d. Result: %d\n", gServerSocket, result);
+    close(gServerSocket);
     exit(1);
   }
-  result = listen(server_socket, MAXPENDING);  // Last arg is our connection queue limit.
+  result = listen(gServerSocket, MAXPENDING);  // Last arg is our connection queue limit.
   if (result < 0)
   {
-    printf("Failed to listen to socket %d. Result: %d\n", server_socket, result);
-    close(server_socket);
+    printf("Failed to listen to socket %d. Result: %d\n", gServerSocket, result);
+    close(gServerSocket);
     exit(1);
   }
   while (1)
@@ -734,11 +772,11 @@ int main(int argc, char **argv)
     unsigned int client_host_len = sizeof(client_host);
     // Block, waiting to accept a new connection:
     printf("Awaiting connection...\n");
-    client_socket = accept(server_socket, (struct sockaddr*)&client_host, &client_host_len);
+    client_socket = accept(gServerSocket, (struct sockaddr*)&client_host, &client_host_len);
     if (client_socket < 0)
     {
-      printf("Failed to accept client on socket %d. Result: %d\n", server_socket, client_socket);
-      close(server_socket);
+      printf("Failed to accept client on socket %d. Result: %d\n", gServerSocket, client_socket);
+      close(gServerSocket);
       exit(1);
     }
     RFB_HandleClient(client_socket);
