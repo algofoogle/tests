@@ -3,6 +3,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <stdarg.h>
@@ -55,7 +56,8 @@ enum {
 #define RFB16(zzs) ((zzs)&0xFFFFL)
 #define RFB32(zzs) ((zzs)&0xFFFFFFFFL)
 #endif
-
+#define RFB16P(zza) RFB16(*(U16*)(zza))
+#define RFB32P(zza) RFB32(*(U32*)(zza))
 
 static volatile int gServerSocket = -1; // Volatile because CTRL+C (SIGINT) handler can mess with it.
 
@@ -82,6 +84,12 @@ typedef struct {
   int len;
   int offset;
   pixel_format format;
+  struct {
+    int x;
+    int y;
+    int buttons;
+  } cursor;
+  int refresh;
 } rfb_conn;
 
 
@@ -111,9 +119,9 @@ printf(  \
   (zzpf)->depth,  \
   (zzpf)->big_endian ? "BIG" : "little",  \
   (zzpf)->true_colour ? "YES" : "no",  \
-  (unsigned int)RFB16(*(U16*)((zzpf)->r_max)),  \
-  (unsigned int)RFB16(*(U16*)((zzpf)->g_max)),  \
-  (unsigned int)RFB16(*(U16*)((zzpf)->b_max)),  \
+  (unsigned int)RFB16P((zzpf)->r_max), \
+  (unsigned int)RFB16P((zzpf)->g_max), \
+  (unsigned int)RFB16P((zzpf)->b_max), \
   (zzpf)->r_shift,  \
   (zzpf)->g_shift,  \
   (zzpf)->b_shift  \
@@ -392,49 +400,112 @@ int RFB_ServerInit(rfb_conn *pc, int width, int height, char *name)
 }
 
 
+#define S1(zza) SOCK_SendU8(s, (zza))
+#define S2(zza) SOCK_SendU16(s, (zza))
+#define S4(zza) SOCK_SendU32(s, (zza))
+// SMELL: Handle endianness change for 16 and 32 bit:
+#define SCOLOR(f,c) ((f)->bpp==32) ? S4(c) : ((f)->bpp==16) ? S2(c) : S1(c)
+
+#define RGB_FORMAT(f,r,g,b) \
+ (((((r) * (1+RFB16P((f)->r_max))) >> 8) << (f)->r_shift) \
+| ((((g) * (1+RFB16P((f)->g_max))) >> 8) << (f)->g_shift) \
+| ((((b) * (1+RFB16P((f)->b_max))) >> 8) << (f)->b_shift))
+
 
 int RFB_FramebufferUpdate(rfb_conn *pc)
 {
+  U32 color;
   int s = pc->sock;
-  printf("(RFB_FramebufferUpdate)\n");
-  static int step = 0;
+  static int step = 10;
+  fflush(stdout);
   unsigned char raw[] = {
     0,
     0,
     0,1,
-    0,10+step,
-    0,20+step,
-    0,30+step,
-    0,40+step,
+    pc->cursor.x >> 8, pc->cursor.x & 255,
+    pc->cursor.y >> 8, pc->cursor.y & 255,
+    0,20,
+    0,20,
     0,0,0,2,
-    0,0,0,1,
-    0xFF,0xBB,0x66,0, // BGR0
-    0x33,0x55,0x77,0, // BGR0
-    0,5,
-    0,6,
-    0,7,
-    0,8,
+    0,0,0,0,
+    0,0,0,0,
   };
-  ++step;
-  return Send(s, (char*)raw, sizeof(raw), 0);
+  int r,g,b;
+  r = random() & 255; //0x33;
+  g = random() & 255; //0x66;
+  b = random() & 255; //0x99;
+  color = RGB_FORMAT(&(pc->format), r, g, b);
+  *(raw+sizeof(raw)-4) = color;
+  int size = sizeof(raw) - ((pc->format.bpp==32) ? 0 : (pc->format.bpp==16) ? 2 : 3);
+  return Send(s, (char*)raw, size, 0);
+
+
+  // // printf("(RFB_FramebufferUpdate)\n");
+  // S1(0); // message-type (FramebufferUpdate).
+  // S1(0); // padding.
+  // S2(1); // 1 rectangle.
+  // // Rectangle:
+  // S2(pc->cursor.x); // x
+  // S2(pc->cursor.y); // y
+  // S2(30); // width
+  // S2(40); // height
+  // S4(2); // RRE encoding.
+  // // RRE:
+  // S4(0); // Zero subrectangle(s).
+  // color = 0;
+  // int r,g,b;
+  // r = 0x33;
+  // g = 0x66;
+  // b = 0x99;
+  // color = RGB_FORMAT(&(pc->format), r, g, b);
+  // SCOLOR(&(pc->format), color); // Background.
+
+  // S4(0x00808182); // Background.
+  // // Subrectangle:
+  // S4(0x00838485); // Colour.
+  // S2(5); // x
+  // S2(6); // y
+  // S2(7); // width
+  // S2(8); // height
+
+  // static int step = 0;
+  // unsigned char raw[] = {
+  //   0,
+  //   0,
+  //   0,1,
+  //   0,10+step,
+  //   0,20+step,
+  //   0,30+step,
+  //   0,40+step,
+  //   0,0,0,2,
+  //   0,0,0,1,
+  //   0xFF,0xBB,0x66,0, // BGR0
+  //   0x33,0x55,0x77,0, // BGR0
+  //   0,5,
+  //   0,6,
+  //   0,7,
+  //   0,8,
+  // };
+  // ++step;
+  // return Send(s, (char*)raw, sizeof(raw), 0);
   // SOCK_SendU8(s, 0); // message-type (FramebufferUpdate).
   // SOCK_SendU8(s, 0); // padding.
-  // SOCK_SendU16(s, 1); // 1 rectangle.
+  // S2(s, 1); // 1 rectangle.
   // // Rectangle:
-  // SOCK_SendU16(s, 10); // x
-  // SOCK_SendU16(s, 20); // y
-  // SOCK_SendU16(s, 30); // width
-  // SOCK_SendU16(s, step++); // height
-  // SOCK_SendU32(s, 2); // RRE encoding.
+  // S2(s, 10); // x
+  // S2(s, 20); // y
+  // S2(s, 30); // width
+  // S2(s, step++); // height
+  // S4(s, 2); // RRE encoding.
   // // RRE:
-  // SOCK_SendU32(s, 1); // Zero subrectangle(s).
-  // SOCK_SendU32(s, 0x00808182); // Background.
+  // S4(s, 1); // Zero subrectangle(s).
+  // S4(s, 0x00808182); // Background.
   // // Subrectangle:
-  // SOCK_SendU32(s, 0x00838485); // Colour.
-  // SOCK_SendU16(s, 5); // x
-  // SOCK_SendU16(s, 6); // y
-  // SOCK_SendU16(s, 7); // width
-  // SOCK_SendU16(s, 8); // height
+  // S4(s, 0x00838485); // Colour.
+  // S2(s, 5); // x
+  // S2(s, 6); // y
+  // S2(s, 7); // width
+  // S2(s, 8); // height
   return -1;
 }
 
@@ -551,10 +622,10 @@ int RFB_Handshake(rfb_conn *pc)
 // }
 
 #define BEGIN_CLIENT_COMMAND_SET() {
-#define CLIENT_COMMAND(zzcmd,zzvar) \
+#define CLIENT_COMMAND_2(zzcmd,zzvar,zzprint) \
   } case k##zzcmd: { \
     zzcmd##_t *zzvar; \
-    printf(#zzcmd); \
+    zzprint(#zzcmd); \
     zzvar = RFB_WaitForStruct(pc, zzcmd##_t); \
     if (!zzvar) { \
       printf(" - Failed!\n"); \
@@ -562,6 +633,7 @@ int RFB_Handshake(rfb_conn *pc)
     } \
     else
 #define END_CLIENT_COMMAND_SET()  }
+#define CLIENT_COMMAND(zzcmd,zzvar) CLIENT_COMMAND_2(zzcmd,zzvar,printf)
 
 int RFB_WaitForClientCommand(rfb_conn *pc)
 {
@@ -576,7 +648,7 @@ int RFB_WaitForClientCommand(rfb_conn *pc)
     printf("Failed while waiting for client command: Disconnected?\n");
     return -1;
   }
-  printf("Client command: ");
+  // printf("Client command: ");
   switch (value)
   {
     BEGIN_CLIENT_COMMAND_SET();
@@ -608,10 +680,21 @@ int RFB_WaitForClientCommand(rfb_conn *pc)
       HEXDUMP("", encoding_types, count, 0);
       break;
     }
-    CLIENT_COMMAND(FramebufferUpdateRequest,m)
+    CLIENT_COMMAND_2(FramebufferUpdateRequest,m,{})
     {
-      printf(" - Not implemented\n");
-      HEXDUMP("", m, 1, 0);
+      pc->refresh = 1;
+      // static int tick = 0;
+      // if (tick++ >= 2)
+      // {
+      //   printf("_");
+      //   tick = 0;
+      // }
+      // else
+      // {
+      //   printf(".");
+      // }
+      // printf(" - Done\n");
+      // HEXDUMP("", m, 1, 0);
       break;
     }
     CLIENT_COMMAND(KeyEvent,m)
@@ -621,9 +704,14 @@ int RFB_WaitForClientCommand(rfb_conn *pc)
       // HEXDUMP("", m, 1, 0);
       break;
     }
-    CLIENT_COMMAND(PointerEvent,m)
+    CLIENT_COMMAND_2(PointerEvent,m,{})
     {
-      printf(" - Pos: (%d,%d) - Buttons: "BYTE_TO_BINARY_PATTERN"\n", (int)RFB16(m->x), (int)RFB16(m->y), BYTE_TO_BINARY(m->button_mask));
+      pc->cursor.x = (int)RFB16(m->x);
+      pc->cursor.y = (int)RFB16(m->y);
+      pc->cursor.buttons = m->button_mask;
+      //printf(" - Pos: (%d,%d) - Buttons: "BYTE_TO_BINARY_PATTERN"\n", pc->cursor.x, pc->cursor.y, BYTE_TO_BINARY(pc->cursor.buttons));
+      printf("P");
+      fflush(stdout);
       // HEXDUMP("", m, 1, 0);
       break;
     }
@@ -660,7 +748,7 @@ int RFB_WaitForClientCommand(rfb_conn *pc)
 
 void RFB_HandleClient(int sock)
 {
-  rfb_conn conn;
+  rfb_conn conn = {0};
   printf("Accepted connection %d\n", sock);
   if (RFB_OpenClient(sock, &conn) < 0)
   {
@@ -670,9 +758,14 @@ void RFB_HandleClient(int sock)
   int state = STATE_HANDSHAKE;
   int abort = 0;
 
+  struct timeval tv;
+  gettimeofday(&tv, 0);
+  int last_time = 0;
+
   // RFB message loop:
   while (!abort)
   {
+    gettimeofday(&tv, 0);
     switch (state)
     {
       case STATE_HANDSHAKE:
@@ -695,6 +788,15 @@ void RFB_HandleClient(int sock)
         }
         break;
       }
+    }
+    if ((tv.tv_usec-last_time+1000000)%1000000 > 20000) // 50Hz.
+    {
+      if (conn.refresh)
+      {
+        RFB_FramebufferUpdate(&conn);
+        conn.refresh = 0;
+      }
+      last_time = tv.tv_usec;
     }
   }
   printf("Closing connection %d\n", sock);
@@ -734,6 +836,14 @@ void SIG_Handle(int sig)
 }
 
 
+int SOCK_NoLinger(int sock)
+{
+  static struct linger lin;
+  lin.l_onoff = 1;
+  lin.l_linger = 0;
+  return setsockopt(sock, SOL_SOCKET, SO_LINGER, (void*)&lin, sizeof(lin));
+}
+
 
 int main(int argc, char **argv)
 {
@@ -767,6 +877,7 @@ int main(int argc, char **argv)
     close(gServerSocket);
     exit(1);
   }
+  SOCK_NoLinger(gServerSocket);
   while (1)
   {
     unsigned int client_host_len = sizeof(client_host);
@@ -779,6 +890,7 @@ int main(int argc, char **argv)
       close(gServerSocket);
       exit(1);
     }
+    SOCK_NoLinger(client_socket);
     RFB_HandleClient(client_socket);
   }
 }
