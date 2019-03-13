@@ -17,3 +17,5 @@ can render out an ASCII string as proof that the image decoder is working.
 
 I need to get it to produce useful files, as soon as I understand the NES CHR-ROM binary format.
 
+NOTE: [`ASCII-02m.gal`](ASCII-02m.gal) was created with
+[GraphicsGale](https://graphicsgale.com/us/).
